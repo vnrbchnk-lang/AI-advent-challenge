@@ -1,0 +1,24 @@
+# --- Секреты (НИКОГДА не коммитим) ---
+.env
+.env.*
+*.key
+secrets.*
+
+# --- Личные заметки (не для публичного репо) ---
+первые2днячелленджа.txt
+СервисыКоторыеМогутПомочь.txt
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# --- IDE / ОС ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
