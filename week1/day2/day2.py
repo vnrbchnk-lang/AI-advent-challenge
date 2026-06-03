@@ -4,7 +4,7 @@ import requests
 API_KEY = os.environ["PROXYAPI_KEY"]
 URL = "https://api.proxyapi.ru/openai/v1/chat/completions"
 
-QUESTION = "Назови 3 фактов про баскетбол."
+QUESTION = "Назови 3 факта про баскетбол."
 
 def ask(payload):
     response = requests.post(
