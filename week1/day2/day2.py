@@ -4,9 +4,7 @@ import requests
 API_KEY = os.environ["PROXYAPI_KEY"]
 URL = "https://api.proxyapi.ru/openai/v1/chat/completions"
 
-# Один и тот же вопрос для обоих запросов
-QUESTION = "Привет! Назови три факта о Луне."
-
+QUESTION = "Назови 3 фактов про баскетбол."
 
 def ask(payload):
     response = requests.post(
@@ -17,8 +15,6 @@ def ask(payload):
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
 
-
-# --- 1. Без ограничений (как в День 1) ---
 free = ask({
     "model": "gpt-4o-mini",
     "messages": [
@@ -26,10 +22,6 @@ free = ask({
     ],
 })
 
-# --- 2. С ограничениями ---
-# - явное описание формата ответа (нумерованный список, по одному факту в строке)
-# - ограничение на длину ответа (max_tokens + инструкция «коротко»)
-# - условие завершения ответа (stop sequence "КОНЕЦ" + явная инструкция его дописать)
 controlled = ask({
     "model": "gpt-4o-mini",
     "messages": [
