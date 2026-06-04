@@ -13,7 +13,7 @@ def ask(messages):
     response = requests.post(
         URL,
         headers={"Authorization": f"Bearer {API_KEY}"},
-        json={"model": "gpt-4o", "messages": messages},
+        json={"model": "gpt-5.5", "messages": messages},
     )
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
