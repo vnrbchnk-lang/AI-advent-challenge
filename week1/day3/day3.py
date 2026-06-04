@@ -13,22 +13,19 @@ def ask(messages):
     response = requests.post(
         URL,
         headers={"Authorization": f"Bearer {API_KEY}"},
-        json={"model": "gpt-4o-mini", "messages": messages},
+        json={"model": "gpt-4o", "messages": messages},
     )
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
 
-# Способ 1. Прямой ответ — без дополнительных инструкций.
 direct = ask([
     {"role": "user", "content": TASK},
 ])
 
-# Способ 2. Пошаговое рассуждение.
 step = ask([
     {"role": "user", "content": TASK + "\n\nРешай пошагово, рассуждай по порядку."},
 ])
 
-# Способ 3. Модель сама пишет промпт, затем решает по нему.
 crafted_prompt = ask([
     {
         "role": "user",
@@ -42,7 +39,6 @@ self_prompt = ask([
     {"role": "user", "content": crafted_prompt},
 ])
 
-# Способ 4. Группа экспертов: аналитик, инженер, критик.
 experts = ask([
     {
         "role": "system",
