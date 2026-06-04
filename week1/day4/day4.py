@@ -13,7 +13,6 @@ TASK = (
 )
 
 TEMPERATURES = [0, 0.7, 1.2]
-RUNS = 1
 
 def ask(temperature):
     response = requests.post(
@@ -32,7 +31,4 @@ print("ЗАПРОС:", TASK)
 for temp in TEMPERATURES:
     print()
     print(f"========== temperature = {temp} ==========")
-    for i in range(1, RUNS + 1):
-        print(f"--- прогон {i} ---")
-        print(ask(temp))
-        print()
+    print(ask(temp))
