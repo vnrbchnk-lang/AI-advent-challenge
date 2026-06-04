@@ -1,5 +1,8 @@
 import os
+import sys
 import requests
+
+sys.stdout.reconfigure(encoding="utf-8")
 
 API_KEY = os.environ["PROXYAPI_KEY"]
 URL = "https://api.proxyapi.ru/openai/v1/chat/completions"
