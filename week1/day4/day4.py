@@ -20,7 +20,7 @@ def ask(temperature):
         URL,
         headers={"Authorization": f"Bearer {API_KEY}"},
         json={
-            "model": "gpt-5.5",
+            "model": "gpt-5.2",
             "messages": [{"role": "user", "content": TASK}],
             "temperature": temperature,
         },
