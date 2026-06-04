@@ -13,14 +13,14 @@ TASK = (
 )
 
 TEMPERATURES = [0, 0.7, 1.2]
-RUNS = 2  # по 2 прогона на температуру — видно разнообразие на повторе
+RUNS = 1
 
 def ask(temperature):
     response = requests.post(
         URL,
         headers={"Authorization": f"Bearer {API_KEY}"},
         json={
-            "model": "gpt-5.2",
+            "model": "gpt-5.5",
             "messages": [{"role": "user", "content": TASK}],
             "temperature": temperature,
         },
