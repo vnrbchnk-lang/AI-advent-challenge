@@ -38,9 +38,7 @@ def ask(model, prompt):
     return text, dt, usage
 
 for prompt in PROMPTS:
-    print("\n" + "=" * 70)
     print("ЗАПРОС:", prompt)
-    print("=" * 70)
     for model in MODELS:
         text, dt, usage = ask(model, prompt)
         price_in, price_out = PRICE_PER_1M_USD[model]
