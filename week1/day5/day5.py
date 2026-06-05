@@ -8,12 +8,14 @@ sys.stdout.reconfigure(encoding="utf-8")
 API_KEY = os.environ["PROXYAPI_KEY"]
 URL = "https://api.proxyapi.ru/openai/v1/chat/completions"
 
+RUB_PER_USD = 90
+
 MODELS = ["gpt-3.5-turbo", "gpt-4o", "gpt-5.5"]
 
-PRICES = {
-    "gpt-3.5-turbo": (0.50, 1.50, "$"),
-    "gpt-4o": (2.50, 10.00, "$"),
-    "gpt-5.5": (1520, 9100, "₽"),
+PRICE_PER_1M_USD = {
+    "gpt-3.5-turbo": (0.50, 1.50),
+    "gpt-4o": (2.50, 10.00),
+    "gpt-5.5": (1520 / RUB_PER_USD, 9100 / RUB_PER_USD),
 }
 
 PROMPTS = [
@@ -33,20 +35,18 @@ def ask(model, prompt):
     data = response.json()
     text = data["choices"][0]["message"]["content"]
     usage = data["usage"]
-    price_in, price_out, currency = PRICES[model]
-    cost = usage["prompt_tokens"] / 1e6 * price_in + usage["completion_tokens"] / 1e6 * price_out
-    return text, dt, usage, cost, currency, price_in, price_out
+    return text, dt, usage
 
 for prompt in PROMPTS:
     print("\n" + "=" * 70)
     print("ЗАПРОС:", prompt)
     print("=" * 70)
     for model in MODELS:
-        text, dt, usage, cost, currency, price_in, price_out = ask(model, prompt)
+        text, dt, usage = ask(model, prompt)
+        price_in, price_out = PRICE_PER_1M_USD[model]
         print(f"\n--- {model} ---")
         print(f"время:     {dt:.2f} c")
         print(f"токены:    {usage['prompt_tokens']} вход + "
               f"{usage['completion_tokens']} выход = {usage['total_tokens']} всего")
-        print(f"цена/1М:   {price_in} вход / {price_out} выход {currency}")
-        print(f"стоимость: {cost:.4f} {currency}")
+        print(f"цена/1М:   ${price_in:.2f} вход / ${price_out:.2f} выход")
         print(f"ответ:     {text}")
