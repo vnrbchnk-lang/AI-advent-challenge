@@ -7,6 +7,8 @@ secrets.*
 # --- Личные заметки (не для публичного репо) ---
 первые2днячелленджа.txt
 СервисыКоторыеМогутПомочь.txt
+01_ai_prompting_summary.md
+02_agent_tools_summary.md
 
 # --- Python ---
 __pycache__/
