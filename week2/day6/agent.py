@@ -3,30 +3,31 @@ import sys
 import requests
 
 
-class GeminiAgent:
-    def __init__(self, model="gemini-2.5-pro", system=None):
+class Agent:
+    def __init__(self, model="gpt-5.2", system=None):
         self.model = model
         self.system = system
         self.api_key = os.environ["PROXYAPI_KEY"]
-        self.url = f"https://api.proxyapi.ru/google/v1beta/models/{model}:generateContent"
+        self.url = "https://api.proxyapi.ru/openai/v1/chat/completions"
 
     def ask(self, user_text):
-        payload = {"contents": [{"parts": [{"text": user_text}]}]}
+        messages = []
         if self.system:
-            payload["systemInstruction"] = {"parts": [{"text": self.system}]}
+            messages.append({"role": "system", "content": self.system})
+        messages.append({"role": "user", "content": user_text})
         response = requests.post(
             self.url,
             headers={"Authorization": f"Bearer {self.api_key}"},
-            json=payload,
+            json={"model": self.model, "messages": messages},
         )
         response.raise_for_status()
         data = response.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+        return data["choices"][0]["message"]["content"]
 
 
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
-    agent = GeminiAgent(system="Ты — полезный ассистент. Отвечай по-русски, кратко и по делу.")
+    agent = Agent(system="Ты — полезный ассистент. Отвечай по-русски, кратко и по делу.")
     print(f"Агент на {agent.model} запущен. Пиши вопрос. Выход — пустая строка или 'exit'.\n")
     while True:
         user = input("Ты: ").strip()
