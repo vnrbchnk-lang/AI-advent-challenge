@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "advent-agent7"
+version = "0.1.0"
+dependencies = ["requests"]
+
+[project.scripts]
+agent7 = "agent7:main"
+
+[tool.setuptools]
+py-modules = ["agent7"]
