@@ -10,6 +10,10 @@ secrets.*
 01_ai_prompting_summary.md
 02_agent_tools_summary.md
 
+# --- Данные диалогов агентов (живая история, не код) ---
+week2/*/history.json
+week2/*/test_history.json
+
 # --- Python ---
 __pycache__/
 *.py[cod]
