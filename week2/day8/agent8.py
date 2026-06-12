@@ -11,9 +11,11 @@ PRICES_RUB_PER_1M = {
     "gpt-5.2": {"input": 531, "output": 4245},
     "gpt-3.5-turbo": {"input": 129, "output": 387},
 }
-CONTEXT_LIMIT = 3000
+CONTEXT_LIMIT = 10000
 FLOOD_MODEL = "gpt-3.5-turbo"
 FLOOD_MODEL_WINDOW = 16385
+JUNK_WORD = "вода "
+JUNK_TOKENS_PER_WORD_GPT52 = 1
 
 
 class ContextOverflowError(Exception):
@@ -74,6 +76,14 @@ class Agent:
 
     def context_fill_percent(self):
         return round(self.history_tokens / self.context_limit * 100)
+
+    def fill(self, target_tokens):
+        repeats = max(1, target_tokens // JUNK_TOKENS_PER_WORD_GPT52)
+        junk = "Технический балласт для теста контекста, игнорируй его: " + JUNK_WORD * repeats
+        self.messages.append({"role": "user", "content": junk})
+        self.messages.append({"role": "assistant", "content": "Принято, игнорирую."})
+        self.history_tokens += target_tokens
+        self.save()
 
     def ask(self, user_text):
         if self.history_tokens >= self.context_limit:
@@ -171,8 +181,9 @@ def main():
     else:
         print(f"Агент на {agent.model} запущен. Новый диалог.")
     print(f"Лимит контекста: {agent.context_limit} токенов (ручной, для демонстрации).")
-    print("Команды: 'stats' — таблица токенов, 'flood' — переполнить реальное окно "
-          f"{FLOOD_MODEL}, 'reset' — забыть диалог, пустая строка или 'exit' — выход.\n")
+    print("Команды: 'stats' — таблица токенов, 'fill N' — дописать в историю ~N токенов "
+          f"балласта (локально, бесплатно), 'flood' — переполнить реальное окно {FLOOD_MODEL}, "
+          "'reset' — забыть диалог, пустая строка или 'exit' — выход.\n")
     while True:
         user = input("Ты: ").strip()
         if user == "" or user.lower() == "exit":
@@ -189,6 +200,16 @@ def main():
             print()
             flood(agent.api_key)
             print()
+            continue
+        if user.lower().startswith("fill"):
+            parts = user.split()
+            if len(parts) != 2 or not parts[1].isdigit():
+                print("\n[Формат: fill N, например fill 7000]\n")
+                continue
+            agent.fill(int(parts[1]))
+            print(f"\n[Балласт ~{parts[1]} токенов дописан в историю локально, без запроса к API. "
+                  f"История ~{agent.history_tokens}/{agent.context_limit} "
+                  f"({agent.context_fill_percent()}%). Точная цифра — после следующего хода.]\n")
             continue
         try:
             print(f"\nАгент: {agent.ask(user)}\n")
