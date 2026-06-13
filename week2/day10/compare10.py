@@ -53,6 +53,24 @@ def run_strategy(name, history_path):
     return agent, answers
 
 
+def run_branching_independence(history_path):
+    history_path.unlink(missing_ok=True)
+    agent = Agent(system=SYSTEM, history_path=history_path, strategy="branching")
+    agent.ask("Делаем мобильное приложение, помоги выбрать стек разработки.")
+    agent.make_checkpoint()
+    agent.branch("android")
+    agent.ask("Решение зафиксировано: платформа — только Android, язык Kotlin.")
+    agent.branch("ios")
+    agent.ask("Решение зафиксировано: платформа — только iOS, язык Swift.")
+    question = "Какую платформу и язык мы выбрали в этой ветке? Ответь одной строкой."
+    agent.switch("android")
+    android_answer = agent.ask(question)
+    agent.switch("ios")
+    ios_answer = agent.ask(question)
+    history_path.unlink(missing_ok=True)
+    return android_answer, ios_answer
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     here = Path(__file__).parent
@@ -87,6 +105,17 @@ def main():
     for key, value in facts_agent.facts.items():
         print(f"  {key}: {value}")
     print()
+
+    print("=" * 80)
+    print("\nВЕТВЛЕНИЕ: независимость двух веток от одного checkpoint\n")
+    print("Общий старт → checkpoint → ветка 'android' (Kotlin) и ветка 'ios' (Swift), "
+          "затем обеим один и тот же вопрос:\n")
+    android_path = here / "compare10_branch.json"
+    android_answer, ios_answer = run_branching_independence(android_path)
+    print(f"--- ветка android\n    {android_answer}\n")
+    print(f"--- ветка ios\n    {ios_answer}\n")
+    print("Ветки расходятся от общей точки и не видят решений друг друга — "
+          "контексты независимы.\n")
 
 
 if __name__ == "__main__":
