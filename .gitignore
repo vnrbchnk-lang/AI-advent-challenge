@@ -13,6 +13,8 @@ secrets.*
 # --- Данные диалогов агентов (живая история, не код) ---
 week2/*/history.json
 week2/*/test_history.json
+week2/*/compare*.json
+week2/*/_t.json
 
 # --- Python ---
 __pycache__/
