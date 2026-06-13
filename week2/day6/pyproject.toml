@@ -8,7 +8,7 @@ version = "0.1.0"
 dependencies = ["requests"]
 
 [project.scripts]
-agent = "agent:main"
+agent6 = "agent6:main"
 
 [tool.setuptools]
-py-modules = ["agent"]
+py-modules = ["agent6"]
