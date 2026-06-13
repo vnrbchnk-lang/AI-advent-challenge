@@ -4,8 +4,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "day8"))
 
-from agent8 import Agent as RawAgent
+from agent8 import Agent as RawAgent     
 from agent9 import Agent as CompressingAgent
+
+#python week2\day9\compare.py
 
 SYSTEM = "Ты — ассистент. Отвечай кратко, по-русски, без лишних слов."
 FACT_MESSAGES = [
@@ -66,9 +68,11 @@ def main():
             print(f"--- {label} | вход {turn['prompt_tokens']} ток. | ход {turn['cost_rub']:.4f} ₽")
             print(f"    {answer}\n")
 
+    compression_cost = sum(t["cost_rub"] for t in compressing.turns if t.get("compress"))
     print("=" * 80)
     print(f"\nИтого за весь прогон: БЕЗ сжатия {raw.total_spent_rub():.4f} ₽ | "
-          f"СО сжатием {compressing.total_spent_rub():.4f} ₽ (включая цену самого сжатия)")
+          f"СО сжатием {compressing.total_spent_rub():.4f} ₽ "
+          f"(из них на сжатие {compression_cost:.4f} ₽)")
     raw_path.unlink(missing_ok=True)
     compressed_path.unlink(missing_ok=True)
 
