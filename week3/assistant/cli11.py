@@ -15,8 +15,8 @@ from rich import box
 from assistant.memory import MemoryLayers, build_messages
 
 API_URL = "https://api.proxyapi.ru/openai/v1/chat/completions"
-MAIN_MODEL = "gpt-5.2"
-PRICES_RUB_PER_1M = {"gpt-5.2": {"input": 531, "output": 4245}}
+MAIN_MODEL = "gpt-4.1"
+PRICES_RUB_PER_1M = {"gpt-4.1": {"input": 516, "output": 2062}}
 
 SYSTEM_PROMPT = (
     "Ты — ассистент с явной моделью памяти из трёх слоёв. "
