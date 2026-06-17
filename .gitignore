@@ -9,12 +9,14 @@ secrets.*
 СервисыКоторыеМогутПомочь.txt
 01_ai_prompting_summary.md
 02_agent_tools_summary.md
+03-memory-state-summary.md
 
 # --- Данные диалогов агентов (живая история, не код) ---
 week2/*/history.json
 week2/*/test_history.json
 week2/*/compare*.json
 week2/*/_t.json
+week3/assistant/store/*.json
 
 # --- Python ---
 __pycache__/
