@@ -50,15 +50,20 @@ COMMANDS = {
     "/help": "справка",
 }
 
+STEEL = "#71797e"
+STEEL_BRIGHT = "#9aa0a6"
+STEEL_PALE = "#c2c7cc"
+STEEL_DIM = "#4b4f52"
+
 MENU_STYLE = Style.from_dict({
-    "prompt": "#af87ff bold",
-    "completion-menu": "bg:#1c1c1c",
-    "completion-menu.completion": "bg:#1c1c1c #9e9e9e",
-    "completion-menu.completion.current": "bg:#5f5fff #ffffff bold",
-    "completion-menu.meta.completion": "bg:#262626 #6c6c6c",
-    "completion-menu.meta.completion.current": "bg:#5f5fff #e4e4e4",
-    "scrollbar.background": "bg:#303030",
-    "scrollbar.button": "bg:#af87ff",
+    "prompt": f"{STEEL_BRIGHT} bold",
+    "completion-menu": "bg:#1b1d1e",
+    "completion-menu.completion": "bg:#1b1d1e #8a8f94",
+    "completion-menu.completion.current": "bg:#71797e #f0f2f4 bold",
+    "completion-menu.meta.completion": "bg:#232627 #5f6469",
+    "completion-menu.meta.completion.current": "bg:#71797e #d4d8dc",
+    "scrollbar.background": "bg:#2a2d2e",
+    "scrollbar.button": "bg:#71797e",
 })
 
 console = Console()
@@ -111,13 +116,13 @@ def show_memory(memory):
     table.add_column("Что хранит", no_wrap=True)
     table.add_column("Содержимое")
     short = "\n".join(f"[dim]{m['role']}:[/dim] {m['content']}" for m in memory.short_term) or "[dim]пусто[/dim]"
-    working = "\n".join(f"[cyan]{k}[/cyan] = {v}" for k, v in memory.working.items()) or "[dim]пусто[/dim]"
-    long_term = "\n".join(f"[green]{k}[/green] = {v}" for k, v in memory.long_term.items()) or "[dim]пусто[/dim]"
-    table.add_row(Text("КРАТКОСРОЧНАЯ", style="yellow"), "текущий диалог", short)
-    table.add_row(Text("РАБОЧАЯ", style="cyan"), "данные текущей задачи", working)
-    table.add_row(Text("ДОЛГОВРЕМЕННАЯ", style="green"), "профиль, решения, знания", long_term)
-    console.print(Panel(table, title="🧠 Память ассистента — три слоя, хранятся в отдельных файлах",
-                        border_style="magenta"))
+    working = "\n".join(f"[{STEEL_PALE}]{k}[/{STEEL_PALE}] = {v}" for k, v in memory.working.items()) or "[dim]пусто[/dim]"
+    long_term = "\n".join(f"[{STEEL_PALE}]{k}[/{STEEL_PALE}] = {v}" for k, v in memory.long_term.items()) or "[dim]пусто[/dim]"
+    table.add_row(Text("КРАТКОСРОЧНАЯ", style=STEEL_BRIGHT), "текущий диалог", short)
+    table.add_row(Text("РАБОЧАЯ", style=STEEL_BRIGHT), "данные текущей задачи", working)
+    table.add_row(Text("ДОЛГОВРЕМЕННАЯ", style=STEEL_BRIGHT), "профиль, решения, знания", long_term)
+    console.print(Panel(table, title="ПАМЯТЬ АССИСТЕНТА — три слоя, хранятся в отдельных файлах",
+                        border_style=STEEL))
 
 
 def run_demo(assistant):
@@ -126,13 +131,13 @@ def run_demo(assistant):
     long_block = {"role": "system",
                   "content": LONG_TERM_PREFIX + json.dumps(DEMO_PROFILE, ensure_ascii=False)}
     console.print(Panel(f"Вопрос: [bold]{DEMO_QUESTION}[/bold]\n\nДолговременная память (профиль): "
-                        f"{DEMO_PROFILE}", title="🔬 Как память влияет на ответ",
-                        border_style="magenta"))
+                        f"{DEMO_PROFILE}", title="ВЛИЯНИЕ ПАМЯТИ НА ОТВЕТ",
+                        border_style=STEEL))
     with console.status("[dim]гоняю один вопрос с памятью и без…[/dim]", spinner="dots"):
         off_answer, _ = assistant.call_api(base + [user_msg])
         on_answer, _ = assistant.call_api(base + [long_block, user_msg])
-    off_panel = Panel(off_answer, title="❌ БЕЗ памяти", border_style="red")
-    on_panel = Panel(on_answer, title="✅ С памятью (профиль)", border_style="green")
+    off_panel = Panel(off_answer, title="БЕЗ ПАМЯТИ", border_style=STEEL_DIM)
+    on_panel = Panel(on_answer, title="С ПАМЯТЬЮ (ПРОФИЛЬ)", border_style=STEEL_BRIGHT)
     console.print(Columns([off_panel, on_panel], equal=True, expand=True))
     console.print("[dim]Тот же вопрос. Слева профиль не подмешан — модель берёт ходовой "
                   "вариант (обычно Python). Справа из памяти приходит Kotlin/MVI и запреты — "
@@ -151,19 +156,19 @@ def show_help():
         ("Команды начинаются со ", ""), ("/", "bold"),
         (" — набери ", ""), ("/", "bold"), (" и появится список.\n\n", ""),
         ("Запоминание — это заметка ", "dim"), ("название = содержимое", "bold"),
-        (".\n  ", "dim"), ("/remember-forever стек = Kotlin", "bold green"),
+        (".\n  ", "dim"), ("/remember-forever стек = Kotlin", f"bold {STEEL_PALE}"),
         (" → запомнит навсегда (профиль/факты).\n  ", "dim"),
-        ("/remember-now бюджет = 500к", "bold cyan"), (" → запомнит для текущей задачи.\n", "dim"),
-        ("Можно и без «=» — просто ", "dim"), ("/remember-forever люблю краткие ответы", "green"),
+        ("/remember-now бюджет = 500к", f"bold {STEEL_PALE}"), (" → запомнит для текущей задачи.\n", "dim"),
+        ("Можно и без «=» — просто ", "dim"), ("/remember-forever люблю краткие ответы", STEEL_PALE),
         (", название придумается само.", "dim"),
     )
     table = Table(box=box.SIMPLE, expand=True, show_header=False)
-    table.add_column("команда", style="bold cyan", no_wrap=True)
+    table.add_column("команда", style=f"bold {STEEL_BRIGHT}", no_wrap=True)
     table.add_column("что делает")
     for cmd, desc in COMMANDS.items():
         table.add_row(cmd, desc)
-    console.print(Panel(intro, border_style="cyan", title="Как пользоваться"))
-    console.print(Panel(table, border_style="cyan", title="Команды"))
+    console.print(Panel(intro, border_style=STEEL, title="Как пользоваться"))
+    console.print(Panel(table, border_style=STEEL, title="Команды"))
 
 
 def save_fact(memory, store, name, rest):
@@ -179,12 +184,12 @@ def save_fact(memory, store, name, rest):
         key, value = f"пункт_{len(memory.working) + 1}", body
     if store == "long":
         memory.remember(key, value)
-        console.print(Panel(f"[green]{key}[/green] = {value}",
-                            title="→ долговременная память", border_style="green"))
+        console.print(Panel(f"[{STEEL_PALE}]{key}[/{STEEL_PALE}] = {value}",
+                            title="→ долговременная память", border_style=STEEL))
     else:
         memory.set_task(key, value)
-        console.print(Panel(f"[cyan]{key}[/cyan] = {value}",
-                            title="→ рабочая память", border_style="cyan"))
+        console.print(Panel(f"[{STEEL_PALE}]{key}[/{STEEL_PALE}] = {value}",
+                            title="→ рабочая память", border_style=STEEL))
 
 
 def handle_command(assistant, name, rest):
@@ -197,7 +202,7 @@ def handle_command(assistant, name, rest):
         run_demo(assistant)
     elif name == "reset":
         memory.reset()
-        console.print(Panel("Вся память стёрта (все три слоя).", border_style="red"))
+        console.print(Panel("Вся память стёрта (все три слоя).", border_style=STEEL))
     elif name == "remember-forever":
         save_fact(memory, "long", "remember-forever", rest)
     elif name == "remember-now":
@@ -212,12 +217,12 @@ def banner(assistant):
               f"рабочая {len(memory.working)} · долговременная {len(memory.long_term)}")
     body = Text.assemble(
         ("Ассистент с явной моделью памяти", "bold"),
-        ("\nДень 11 · модель ", ""), (assistant.model, "bold cyan"),
+        ("\nДень 11 · модель ", ""), (assistant.model, f"bold {STEEL_BRIGHT}"),
         ("\n", ""), (loaded, "dim"),
         ("\n\nПиши сообщение — обычный чат. Набери ", "dim"), ("/", "bold"),
-        (" для команд, ", "dim"), ("/help", "bold cyan"), (" — подробно. Пустая строка — выход.", "dim"),
+        (" для команд, ", "dim"), ("/help", f"bold {STEEL_BRIGHT}"), (" — подробно. Пустая строка — выход.", "dim"),
     )
-    console.print(Panel(body, border_style="magenta", box=box.DOUBLE))
+    console.print(Panel(body, border_style=STEEL, box=box.DOUBLE))
 
 
 def main():
@@ -246,7 +251,7 @@ def main():
             continue
         with console.status("[dim]ассистент думает…[/dim]", spinner="dots"):
             answer, usage, messages = assistant.ask(user)
-        console.print(Panel(answer, title="🤖 Ассистент", border_style="green", box=box.ROUNDED))
+        console.print(Panel(answer, title="АССИСТЕНТ", border_style=STEEL, box=box.ROUNDED))
         turn_footer(assistant, usage, len(messages))
     console.print("[dim]Память сохранена. Пока![/dim]")
 
