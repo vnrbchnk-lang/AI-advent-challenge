@@ -7,6 +7,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+from rich.columns import Columns
 from rich import box
 
 from assistant.memory import MemoryLayers, build_messages, LAYER_TITLES
@@ -22,6 +23,17 @@ SYSTEM_PROMPT = (
     "задачи. Краткосрочную — это текущий диалог. Опирайся на то, что есть в памяти, не "
     "выдумывай того, чего там нет. Отвечай по-русски, по существу, кратко."
 )
+
+LONG_TERM_PREFIX = ("Долговременная память (профиль, решения, знания) — "
+                    "учитывай как постоянные факты о пользователе и проекте: ")
+
+DEMO_PROFILE = {
+    "имя": "Иван",
+    "стек": "Kotlin",
+    "архитектура": "только MVI, обязательная ViewModel",
+    "запреты": "не использовать Python и RxJava",
+}
+DEMO_QUESTION = "Набросай старт сервиса авторизации для нашего проекта."
 
 console = Console()
 
@@ -93,6 +105,29 @@ def show_prompt(assistant):
                         border_style="blue"))
 
 
+def run_demo(assistant):
+    base = [{"role": "system", "content": assistant.system}]
+    user_msg = {"role": "user", "content": DEMO_QUESTION}
+    long_block = {"role": "system",
+                  "content": LONG_TERM_PREFIX + json.dumps(DEMO_PROFILE, ensure_ascii=False)}
+    off_messages = base + [user_msg]
+    on_messages = base + [long_block, user_msg]
+    console.print(Panel(f"Вопрос: [bold]{DEMO_QUESTION}[/bold]\n\nДолговременная память (профиль): "
+                        f"{DEMO_PROFILE}", title="🔬 Демо: влияние памяти на ответ",
+                        border_style="magenta"))
+    with console.status("[dim]гоняю один вопрос с памятью и без…[/dim]", spinner="dots"):
+        off_answer, off_usage = assistant.call_api(off_messages)
+        on_answer, on_usage = assistant.call_api(on_messages)
+    off_panel = Panel(off_answer, title="❌ БЕЗ долговременной памяти",
+                      border_style="red", subtitle=f"{off_usage['prompt_tokens']} вход. ток.")
+    on_panel = Panel(on_answer, title="✅ С долговременной памятью",
+                     border_style="green", subtitle=f"{on_usage['prompt_tokens']} вход. ток.")
+    console.print(Columns([off_panel, on_panel], equal=True, expand=True))
+    console.print("[dim]Тот же вопрос. Слева профиль не подмешан — модель берёт ходовой "
+                  "вариант (обычно Python). Справа из долговременной памяти приходит "
+                  "Kotlin/MVI и запреты — ответ другой. Живую память это не трогает.[/dim]")
+
+
 def turn_footer(assistant, usage, n_messages):
     cost = assistant.cost_rub(usage)
     text = (f"вход {usage['prompt_tokens']} ток. · ответ {usage['completion_tokens']} · "
@@ -110,6 +145,7 @@ HELP = """[bold]Команды памяти (явный выбор, что и к
 
 [bold]Просмотр:[/bold]
   [magenta]layers[/magenta]      три слоя памяти    [blue]prompt[/blue]   что реально уходит в запрос
+  [magenta]demo[/magenta]        A/B: один вопрос с долговременной памятью и без (влияние на ответ)
 
 [bold]Управление:[/bold]
   forget ключ      убрать из долговременной
@@ -132,6 +168,9 @@ def handle_command(assistant, user):
         return True
     if low == "prompt":
         show_prompt(assistant)
+        return True
+    if low == "demo":
+        run_demo(assistant)
         return True
     if low == "reset":
         memory.reset()
