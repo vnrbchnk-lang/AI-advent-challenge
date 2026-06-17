@@ -9,7 +9,7 @@ requires-python = ">=3.10"
 dependencies = ["requests", "rich"]
 
 [project.scripts]
-assistant11 = "assistant.cli11:main"
+agent11 = "assistant.cli11:main"
 
 [tool.setuptools]
 packages = ["assistant"]
