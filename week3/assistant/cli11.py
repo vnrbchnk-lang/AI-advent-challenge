@@ -45,7 +45,7 @@ COMMANDS = {
     "/remember-forever": "запомнить навсегда (профиль, факты). Пример: /remember-forever стек = Kotlin",
     "/remember-now": "запомнить для текущей задачи. Пример: /remember-now бюджет = 500к",
     "/show-memory": "показать все три слоя памяти",
-    "/demo": "как память влияет на ответ (с памятью и без)",
+    "/demo": "как ТВОЯ память влияет на ответ. Можно задать вопрос: /demo <вопрос>",
     "/reset": "стереть всю память",
     "/help": "справка",
 }
@@ -125,13 +125,20 @@ def show_memory(memory):
                         border_style=STEEL))
 
 
-def run_demo(assistant):
+def run_demo(assistant, question=""):
+    profile = dict(assistant.memory.long_term)
+    using_sample = not profile
+    if using_sample:
+        profile = dict(DEMO_PROFILE)
+    question = question.strip() or DEMO_QUESTION
     base = [{"role": "system", "content": assistant.system}]
-    user_msg = {"role": "user", "content": DEMO_QUESTION}
+    user_msg = {"role": "user", "content": question}
     long_block = {"role": "system",
-                  "content": LONG_TERM_PREFIX + json.dumps(DEMO_PROFILE, ensure_ascii=False)}
-    console.print(Panel(f"Вопрос: [bold]{DEMO_QUESTION}[/bold]\n\nДолговременная память (профиль): "
-                        f"{DEMO_PROFILE}", title="ВЛИЯНИЕ ПАМЯТИ НА ОТВЕТ",
+                  "content": LONG_TERM_PREFIX + json.dumps(profile, ensure_ascii=False)}
+    source = ("долговременная память пуста — взят образец" if using_sample
+              else "взята твоя долговременная память")
+    console.print(Panel(f"Вопрос: [bold]{question}[/bold]\n\nДолговременная память ([dim]{source}[/dim]): "
+                        f"{profile}", title="ВЛИЯНИЕ ПАМЯТИ НА ОТВЕТ",
                         border_style=STEEL))
     with console.status("[dim]гоняю один вопрос с памятью и без…[/dim]", spinner="dots"):
         off_answer, _ = assistant.call_api(base + [user_msg])
@@ -139,9 +146,9 @@ def run_demo(assistant):
     off_panel = Panel(off_answer, title="БЕЗ ПАМЯТИ", border_style=STEEL_DIM)
     on_panel = Panel(on_answer, title="С ПАМЯТЬЮ (ПРОФИЛЬ)", border_style=STEEL_BRIGHT)
     console.print(Columns([off_panel, on_panel], equal=True, expand=True))
-    console.print("[dim]Тот же вопрос. Слева профиль не подмешан — модель берёт ходовой "
-                  "вариант (обычно Python). Справа из памяти приходит Kotlin/MVI и запреты — "
-                  "ответ другой. Живую память это не трогает.[/dim]")
+    console.print("[dim]Тот же вопрос. Слева память не подмешана — модель отвечает обобщённо. "
+                  "Справа подмешана долговременная память — ответ учитывает её факты. "
+                  "Сам прогон живую память не меняет.[/dim]")
 
 
 def turn_footer(assistant, usage, n_messages):
@@ -199,7 +206,7 @@ def handle_command(assistant, name, rest):
     elif name == "show-memory":
         show_memory(memory)
     elif name == "demo":
-        run_demo(assistant)
+        run_demo(assistant, rest)
     elif name == "reset":
         memory.reset()
         console.print(Panel("Вся память стёрта (все три слоя).", border_style=STEEL))
