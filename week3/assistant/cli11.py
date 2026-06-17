@@ -38,19 +38,12 @@ DEMO_PROFILE = {
 DEMO_QUESTION = "Набросай старт сервиса авторизации для нашего проекта."
 
 COMMANDS = {
-    "/remember": "запомнить навсегда → долговременная. Пример: /remember стек = Kotlin",
-    "/task": "данные текущей задачи → рабочая. Пример: /task бюджет = 500к",
-    "/layers": "показать все три слоя памяти",
-    "/prompt": "показать, что реально уходит в запрос модели",
-    "/demo": "A/B: один вопрос с памятью и без (влияние на ответ)",
-    "/forget": "убрать факт из долговременной. Пример: /forget стек",
-    "/newtask": "очистить рабочую память (сменили задачу)",
-    "/clear": "очистить диалог (краткосрочную память)",
-    "/reset": "стереть всю память (все три слоя)",
-    "/longterm": "подмешивать ли долговременную: /longterm on | off",
-    "/working": "подмешивать ли рабочую: /working on | off",
-    "/help": "показать справку",
-    "/exit": "выход",
+    "/remember": "запомнить навсегда (профиль, факты). Пример: /remember стек = Kotlin",
+    "/task": "запомнить для текущей задачи. Пример: /task бюджет = 500к",
+    "/memory": "показать все три слоя памяти",
+    "/demo": "показать, как память влияет на ответ (с памятью и без)",
+    "/reset": "стереть всю память",
+    "/help": "справка",
 }
 
 console = Console()
@@ -59,19 +52,12 @@ console = Console()
 class SlashCompleter(Completer):
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
-        if not text.startswith("/"):
+        if not text.startswith("/") or " " in text:
             return
-        parts = text.split(" ")
-        if len(parts) == 1:
-            for cmd, desc in COMMANDS.items():
-                if cmd.startswith(parts[0]):
-                    yield Completion(cmd, start_position=-len(parts[0]),
-                                     display=cmd, display_meta=desc)
-        elif len(parts) == 2 and parts[0] in ("/longterm", "/working"):
-            for opt, meta in (("on", "включить"), ("off", "выключить")):
-                if opt.startswith(parts[1]):
-                    yield Completion(opt, start_position=-len(parts[1]),
-                                     display=opt, display_meta=meta)
+        for cmd, desc in COMMANDS.items():
+            if cmd.startswith(text):
+                yield Completion(cmd, start_position=-len(text),
+                                 display=cmd, display_meta=desc)
 
 
 class Assistant:
@@ -80,11 +66,6 @@ class Assistant:
         self.system = SYSTEM_PROMPT
         self.api_key = os.environ["PROXYAPI_KEY"]
         self.memory = MemoryLayers()
-        self.use_long_term = True
-        self.use_working = True
-
-    def build(self):
-        return build_messages(self.memory, self.system, self.use_long_term, self.use_working)
 
     def call_api(self, messages):
         response = requests.post(
@@ -103,16 +84,16 @@ class Assistant:
 
     def ask(self, text):
         self.memory.add_dialog("user", text)
-        messages = self.build()
+        messages = build_messages(self.memory, self.system)
         answer, usage = self.call_api(messages)
         self.memory.add_dialog("assistant", answer)
         return answer, usage, messages
 
 
-def layers_table(memory):
+def show_memory(memory):
     table = Table(box=box.ROUNDED, expand=True, show_lines=True)
     table.add_column("Слой памяти", style="bold", no_wrap=True)
-    table.add_column("Что это", no_wrap=True)
+    table.add_column("Что хранит", no_wrap=True)
     table.add_column("Содержимое")
     short = "\n".join(f"[dim]{m['role']}:[/dim] {m['content']}" for m in memory.short_term) or "[dim]пусто[/dim]"
     working = "\n".join(f"[cyan]{k}[/cyan] = {v}" for k, v in memory.working.items()) or "[dim]пусто[/dim]"
@@ -120,26 +101,8 @@ def layers_table(memory):
     table.add_row(Text("КРАТКОСРОЧНАЯ", style="yellow"), "текущий диалог", short)
     table.add_row(Text("РАБОЧАЯ", style="cyan"), "данные текущей задачи", working)
     table.add_row(Text("ДОЛГОВРЕМЕННАЯ", style="green"), "профиль, решения, знания", long_term)
-    return table
-
-
-def show_layers(memory):
-    console.print(Panel(layers_table(memory), title="🧠 Память ассистента (три слоя, хранятся отдельно)",
+    console.print(Panel(table, title="🧠 Память ассистента — три слоя, хранятся в отдельных файлах",
                         border_style="magenta"))
-
-
-def show_prompt(assistant):
-    messages = assistant.build()
-    table = Table(box=box.SIMPLE, expand=True)
-    table.add_column("#", justify="right", style="dim", no_wrap=True)
-    table.add_column("роль", no_wrap=True)
-    table.add_column("содержимое")
-    for i, m in enumerate(messages, 1):
-        table.add_row(str(i), m["role"], m["content"])
-    flags = (f"долговременная: {'ВКЛ' if assistant.use_long_term else 'ВЫКЛ'}   "
-             f"рабочая: {'ВКЛ' if assistant.use_working else 'ВЫКЛ'}")
-    console.print(Panel(table, title=f"📤 Что реально уходит в запрос  [dim]({flags})[/dim]",
-                        border_style="blue"))
 
 
 def run_demo(assistant):
@@ -147,31 +110,24 @@ def run_demo(assistant):
     user_msg = {"role": "user", "content": DEMO_QUESTION}
     long_block = {"role": "system",
                   "content": LONG_TERM_PREFIX + json.dumps(DEMO_PROFILE, ensure_ascii=False)}
-    off_messages = base + [user_msg]
-    on_messages = base + [long_block, user_msg]
     console.print(Panel(f"Вопрос: [bold]{DEMO_QUESTION}[/bold]\n\nДолговременная память (профиль): "
-                        f"{DEMO_PROFILE}", title="🔬 Демо: влияние памяти на ответ",
+                        f"{DEMO_PROFILE}", title="🔬 Как память влияет на ответ",
                         border_style="magenta"))
     with console.status("[dim]гоняю один вопрос с памятью и без…[/dim]", spinner="dots"):
-        off_answer, off_usage = assistant.call_api(off_messages)
-        on_answer, on_usage = assistant.call_api(on_messages)
-    off_panel = Panel(off_answer, title="❌ БЕЗ долговременной памяти",
-                      border_style="red", subtitle=f"{off_usage['prompt_tokens']} вход. ток.")
-    on_panel = Panel(on_answer, title="✅ С долговременной памятью",
-                     border_style="green", subtitle=f"{on_usage['prompt_tokens']} вход. ток.")
+        off_answer, _ = assistant.call_api(base + [user_msg])
+        on_answer, _ = assistant.call_api(base + [long_block, user_msg])
+    off_panel = Panel(off_answer, title="❌ БЕЗ памяти", border_style="red")
+    on_panel = Panel(on_answer, title="✅ С памятью (профиль)", border_style="green")
     console.print(Columns([off_panel, on_panel], equal=True, expand=True))
     console.print("[dim]Тот же вопрос. Слева профиль не подмешан — модель берёт ходовой "
-                  "вариант (обычно Python). Справа из долговременной памяти приходит "
-                  "Kotlin/MVI и запреты — ответ другой. Живую память это не трогает.[/dim]")
+                  "вариант (обычно Python). Справа из памяти приходит Kotlin/MVI и запреты — "
+                  "ответ другой. Живую память это не трогает.[/dim]")
 
 
 def turn_footer(assistant, usage, n_messages):
     cost = assistant.cost_rub(usage)
-    text = (f"вход {usage['prompt_tokens']} ток. · ответ {usage['completion_tokens']} · "
-            f"в запросе {n_messages} сообщ. · {cost:.4f} ₽  ·  "
-            f"долговременная {'ВКЛ' if assistant.use_long_term else 'ВЫКЛ'} / "
-            f"рабочая {'ВКЛ' if assistant.use_working else 'ВЫКЛ'}")
-    console.print(Text(text, style="dim"))
+    console.print(Text(f"вход {usage['prompt_tokens']} ток. · ответ {usage['completion_tokens']} · "
+                       f"в запросе {n_messages} сообщ. · {cost:.4f} ₽", style="dim"))
 
 
 def show_help():
@@ -179,10 +135,12 @@ def show_help():
         ("Просто пиши сообщение — это обычный чат (попадает в краткосрочную память).\n", ""),
         ("Команды начинаются со ", ""), ("/", "bold"),
         (" — набери ", ""), ("/", "bold"), (" и появится список.\n\n", ""),
-        ("Память — это заметки вида ", "dim"), ("НАЗВАНИЕ = СОДЕРЖИМОЕ", "bold"),
-        (".\nНапример ", "dim"), ("/remember стек = Kotlin", "bold green"),
-        (" → название «стек», содержимое «Kotlin».\n", "dim"),
-        ("Без «=» название придумается само.", "dim"),
+        ("Запоминание — это заметка ", "dim"), ("название = содержимое", "bold"),
+        (".\n  ", "dim"), ("/remember стек = Kotlin", "bold green"),
+        (" → запомнит навсегда (профиль/факты).\n  ", "dim"),
+        ("/task бюджет = 500к", "bold cyan"), (" → запомнит для текущей задачи.\n", "dim"),
+        ("Можно и без «=» — просто ", "dim"), ("/remember люблю краткие ответы", "green"),
+        (", название придумается само.", "dim"),
     )
     table = Table(box=box.SIMPLE, expand=True, show_header=False)
     table.add_column("команда", style="bold cyan", no_wrap=True)
@@ -193,77 +151,44 @@ def show_help():
     console.print(Panel(table, border_style="cyan", title="Команды"))
 
 
+def save_fact(memory, store, name, rest):
+    body = rest.strip()
+    if not body:
+        console.print(f"[dim]Формат: /{name} название = содержимое  (или просто /{name} текст)[/dim]")
+        return
+    if "=" in body:
+        key, value = (part.strip() for part in body.split("=", 1))
+    elif store == "long":
+        key, value = memory.next_note_key(), body
+    else:
+        key, value = f"пункт_{len(memory.working) + 1}", body
+    if store == "long":
+        memory.remember(key, value)
+        console.print(Panel(f"[green]{key}[/green] = {value}",
+                            title="→ долговременная память", border_style="green"))
+    else:
+        memory.set_task(key, value)
+        console.print(Panel(f"[cyan]{key}[/cyan] = {value}",
+                            title="→ рабочая память", border_style="cyan"))
+
+
 def handle_command(assistant, name, rest):
     memory = assistant.memory
     if name == "help":
         show_help()
-        return True
-    if name == "layers":
-        show_layers(memory)
-        return True
-    if name == "prompt":
-        show_prompt(assistant)
-        return True
-    if name == "demo":
+    elif name == "memory":
+        show_memory(memory)
+    elif name == "demo":
         run_demo(assistant)
-        return True
-    if name == "reset":
+    elif name == "reset":
         memory.reset()
         console.print(Panel("Вся память стёрта (все три слоя).", border_style="red"))
-        return True
-    if name == "newtask":
-        memory.clear_working()
-        console.print(Panel("Рабочая память очищена — начали новую задачу. "
-                            "Долговременная и диалог сохранены.", border_style="cyan"))
-        return True
-    if name == "clear":
-        memory.clear_dialog()
-        console.print(Panel("Краткосрочная память (диалог) очищена.", border_style="yellow"))
-        return True
-    if name in ("longterm", "working"):
-        if rest.lower() not in ("on", "off"):
-            console.print(f"[dim]Формат: /{name} on  или  /{name} off[/dim]")
-            return True
-        value = rest.lower() == "on"
-        if name == "longterm":
-            assistant.use_long_term = value
-        else:
-            assistant.use_working = value
-        label = "Долговременная" if name == "longterm" else "Рабочая"
-        console.print(f"[dim]{label} память в запросе: {'ВКЛ' if value else 'ВЫКЛ'}[/dim]")
-        return True
-    if name == "forget":
-        key = rest.strip()
-        if not key:
-            console.print("[dim]Формат: /forget название[/dim]")
-        elif memory.forget(key):
-            console.print(f"[dim]Убрано из долговременной: {key}[/dim]")
-        else:
-            console.print(f"[dim]Факта «{key}» в долговременной нет.[/dim]")
-        return True
-    if name in ("remember", "task"):
-        body = rest.strip()
-        if not body:
-            console.print(f"[dim]Формат: /{name} название = содержимое  (или просто /{name} текст)[/dim]")
-            return True
-        if "=" in body:
-            key, value = body.split("=", 1)
-            key, value = key.strip(), value.strip()
-        elif name == "remember":
-            key, value = memory.next_note_key(), body
-        else:
-            key, value = f"пункт_{len(memory.working) + 1}", body
-        if name == "remember":
-            memory.remember(key, value)
-            console.print(Panel(f"[green]{key}[/green] = {value}",
-                                title="→ долговременная память", border_style="green"))
-        else:
-            memory.set_task(key, value)
-            console.print(Panel(f"[cyan]{key}[/cyan] = {value}",
-                                title="→ рабочая память", border_style="cyan"))
-        return True
-    console.print(f"[dim]Неизвестная команда /{name}. Набери /help.[/dim]")
-    return True
+    elif name == "remember":
+        save_fact(memory, "long", "remember", rest)
+    elif name == "task":
+        save_fact(memory, "working", "task", rest)
+    else:
+        console.print(f"[dim]Неизвестная команда /{name}. Набери /help.[/dim]")
 
 
 def banner(assistant):
@@ -275,7 +200,7 @@ def banner(assistant):
         ("\nДень 11 · модель ", ""), (assistant.model, "bold cyan"),
         ("\n", ""), (loaded, "dim"),
         ("\n\nПиши сообщение — обычный чат. Набери ", "dim"), ("/", "bold"),
-        (" для списка команд, ", "dim"), ("/help", "bold cyan"), (" — подробно.", "dim"),
+        (" для команд, ", "dim"), ("/help", "bold cyan"), (" — подробно. Пустая строка — выход.", "dim"),
     )
     console.print(Panel(body, border_style="magenta", box=box.DOUBLE))
 
@@ -294,9 +219,8 @@ def main():
             break
         if user.startswith("/"):
             parts = user[1:].split(maxsplit=1)
-            name = parts[0].lower() if parts else ""
-            rest = parts[1] if len(parts) > 1 else ""
-            handle_command(assistant, name, rest)
+            handle_command(assistant, parts[0].lower() if parts else "",
+                           parts[1] if len(parts) > 1 else "")
             continue
         with console.status("[dim]ассистент думает…[/dim]", spinner="dots"):
             answer, usage, messages = assistant.ask(user)
