@@ -3,6 +3,8 @@ import os
 import sys
 
 import requests
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -10,7 +12,7 @@ from rich.text import Text
 from rich.columns import Columns
 from rich import box
 
-from assistant.memory import MemoryLayers, build_messages, LAYER_TITLES
+from assistant.memory import MemoryLayers, build_messages
 
 API_URL = "https://api.proxyapi.ru/openai/v1/chat/completions"
 MAIN_MODEL = "gpt-5.2"
@@ -35,7 +37,41 @@ DEMO_PROFILE = {
 }
 DEMO_QUESTION = "Набросай старт сервиса авторизации для нашего проекта."
 
+COMMANDS = {
+    "/remember": "запомнить навсегда → долговременная. Пример: /remember стек = Kotlin",
+    "/task": "данные текущей задачи → рабочая. Пример: /task бюджет = 500к",
+    "/layers": "показать все три слоя памяти",
+    "/prompt": "показать, что реально уходит в запрос модели",
+    "/demo": "A/B: один вопрос с памятью и без (влияние на ответ)",
+    "/forget": "убрать факт из долговременной. Пример: /forget стек",
+    "/newtask": "очистить рабочую память (сменили задачу)",
+    "/clear": "очистить диалог (краткосрочную память)",
+    "/reset": "стереть всю память (все три слоя)",
+    "/longterm": "подмешивать ли долговременную: /longterm on | off",
+    "/working": "подмешивать ли рабочую: /working on | off",
+    "/help": "показать справку",
+    "/exit": "выход",
+}
+
 console = Console()
+
+
+class SlashCompleter(Completer):
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if not text.startswith("/"):
+            return
+        parts = text.split(" ")
+        if len(parts) == 1:
+            for cmd, desc in COMMANDS.items():
+                if cmd.startswith(parts[0]):
+                    yield Completion(cmd, start_position=-len(parts[0]),
+                                     display=cmd, display_meta=desc)
+        elif len(parts) == 2 and parts[0] in ("/longterm", "/working"):
+            for opt, meta in (("on", "включить"), ("off", "выключить")):
+                if opt.startswith(parts[1]):
+                    yield Completion(opt, start_position=-len(parts[1]),
+                                     display=opt, display_meta=meta)
 
 
 class Assistant:
@@ -75,19 +111,20 @@ class Assistant:
 
 def layers_table(memory):
     table = Table(box=box.ROUNDED, expand=True, show_lines=True)
-    table.add_column("Слой", style="bold", no_wrap=True)
+    table.add_column("Слой памяти", style="bold", no_wrap=True)
+    table.add_column("Что это", no_wrap=True)
     table.add_column("Содержимое")
     short = "\n".join(f"[dim]{m['role']}:[/dim] {m['content']}" for m in memory.short_term) or "[dim]пусто[/dim]"
     working = "\n".join(f"[cyan]{k}[/cyan] = {v}" for k, v in memory.working.items()) or "[dim]пусто[/dim]"
     long_term = "\n".join(f"[green]{k}[/green] = {v}" for k, v in memory.long_term.items()) or "[dim]пусто[/dim]"
-    table.add_row(Text("КРАТКОСРОЧНАЯ", style="yellow"), short)
-    table.add_row(Text("РАБОЧАЯ", style="cyan"), working)
-    table.add_row(Text("ДОЛГОВРЕМЕННАЯ", style="green"), long_term)
+    table.add_row(Text("КРАТКОСРОЧНАЯ", style="yellow"), "текущий диалог", short)
+    table.add_row(Text("РАБОЧАЯ", style="cyan"), "данные текущей задачи", working)
+    table.add_row(Text("ДОЛГОВРЕМЕННАЯ", style="green"), "профиль, решения, знания", long_term)
     return table
 
 
 def show_layers(memory):
-    console.print(Panel(layers_table(memory), title="🧠 Память ассистента (3 слоя, хранятся отдельно)",
+    console.print(Panel(layers_table(memory), title="🧠 Память ассистента (три слоя, хранятся отдельно)",
                         border_style="magenta"))
 
 
@@ -95,12 +132,12 @@ def show_prompt(assistant):
     messages = assistant.build()
     table = Table(box=box.SIMPLE, expand=True)
     table.add_column("#", justify="right", style="dim", no_wrap=True)
-    table.add_column("role", no_wrap=True)
-    table.add_column("откуда / содержимое")
+    table.add_column("роль", no_wrap=True)
+    table.add_column("содержимое")
     for i, m in enumerate(messages, 1):
         table.add_row(str(i), m["role"], m["content"])
-    flags = (f"long_term: {'ON' if assistant.use_long_term else 'OFF'}   "
-             f"working: {'ON' if assistant.use_working else 'OFF'}")
+    flags = (f"долговременная: {'ВКЛ' if assistant.use_long_term else 'ВЫКЛ'}   "
+             f"рабочая: {'ВКЛ' if assistant.use_working else 'ВЫКЛ'}")
     console.print(Panel(table, title=f"📤 Что реально уходит в запрос  [dim]({flags})[/dim]",
                         border_style="blue"))
 
@@ -132,97 +169,101 @@ def turn_footer(assistant, usage, n_messages):
     cost = assistant.cost_rub(usage)
     text = (f"вход {usage['prompt_tokens']} ток. · ответ {usage['completion_tokens']} · "
             f"в запросе {n_messages} сообщ. · {cost:.4f} ₽  ·  "
-            f"long_term {'ON' if assistant.use_long_term else 'OFF'} / "
-            f"working {'ON' if assistant.use_working else 'OFF'}")
+            f"долговременная {'ВКЛ' if assistant.use_long_term else 'ВЫКЛ'} / "
+            f"рабочая {'ВКЛ' if assistant.use_working else 'ВЫКЛ'}")
     console.print(Text(text, style="dim"))
 
 
-HELP = """[bold]Команды памяти (явный выбор, что и куда):[/bold]
-  [green]remember[/green] ключ = значение   → долговременная (профиль/решения/знания)
-  [green]remember[/green] текст             → долговременная (автоключ)
-  [cyan]task[/cyan] ключ = значение         → рабочая (данные текущей задачи)
-  [yellow]обычное сообщение[/yellow]        → краткосрочная (диалог) + ответ
+def show_help():
+    intro = Text.assemble(
+        ("Просто пиши сообщение — это обычный чат (попадает в краткосрочную память).\n", ""),
+        ("Команды начинаются со ", ""), ("/", "bold"),
+        (" — набери ", ""), ("/", "bold"), (" и появится список.\n\n", ""),
+        ("Память — это заметки вида ", "dim"), ("НАЗВАНИЕ = СОДЕРЖИМОЕ", "bold"),
+        (".\nНапример ", "dim"), ("/remember стек = Kotlin", "bold green"),
+        (" → название «стек», содержимое «Kotlin».\n", "dim"),
+        ("Без «=» название придумается само.", "dim"),
+    )
+    table = Table(box=box.SIMPLE, expand=True, show_header=False)
+    table.add_column("команда", style="bold cyan", no_wrap=True)
+    table.add_column("что делает")
+    for cmd, desc in COMMANDS.items():
+        table.add_row(cmd, desc)
+    console.print(Panel(intro, border_style="cyan", title="Как пользоваться"))
+    console.print(Panel(table, border_style="cyan", title="Команды"))
 
-[bold]Просмотр:[/bold]
-  [magenta]layers[/magenta]      три слоя памяти    [blue]prompt[/blue]   что реально уходит в запрос
-  [magenta]demo[/magenta]        A/B: один вопрос с долговременной памятью и без (влияние на ответ)
 
-[bold]Управление:[/bold]
-  forget ключ      убрать из долговременной
-  newtask          очистить рабочую (сменили задачу)
-  clear            очистить диалог (краткосрочную)
-  reset            стереть всю память
-  longterm on|off  подмешивать ли долговременную (демо влияния на ответ)
-  working on|off   подмешивать ли рабочую
-  help             эта справка     exit / пусто   выход"""
-
-
-def handle_command(assistant, user):
+def handle_command(assistant, name, rest):
     memory = assistant.memory
-    low = user.lower()
-    if low in ("help", "?"):
-        console.print(Panel(HELP, border_style="cyan", title="Справка"))
+    if name == "help":
+        show_help()
         return True
-    if low == "layers":
+    if name == "layers":
         show_layers(memory)
         return True
-    if low == "prompt":
+    if name == "prompt":
         show_prompt(assistant)
         return True
-    if low == "demo":
+    if name == "demo":
         run_demo(assistant)
         return True
-    if low == "reset":
+    if name == "reset":
         memory.reset()
-        console.print(Panel("Вся память стёрта (все 3 слоя).", border_style="red"))
+        console.print(Panel("Вся память стёрта (все три слоя).", border_style="red"))
         return True
-    if low == "newtask":
+    if name == "newtask":
         memory.clear_working()
         console.print(Panel("Рабочая память очищена — начали новую задачу. "
                             "Долговременная и диалог сохранены.", border_style="cyan"))
         return True
-    if low == "clear":
+    if name == "clear":
         memory.clear_dialog()
         console.print(Panel("Краткосрочная память (диалог) очищена.", border_style="yellow"))
         return True
-    if low in ("longterm on", "longterm off"):
-        assistant.use_long_term = low.endswith("on")
-        console.print(f"[dim]Долговременная память в запросе: {'ON' if assistant.use_long_term else 'OFF'}[/dim]")
+    if name in ("longterm", "working"):
+        if rest.lower() not in ("on", "off"):
+            console.print(f"[dim]Формат: /{name} on  или  /{name} off[/dim]")
+            return True
+        value = rest.lower() == "on"
+        if name == "longterm":
+            assistant.use_long_term = value
+        else:
+            assistant.use_working = value
+        label = "Долговременная" if name == "longterm" else "Рабочая"
+        console.print(f"[dim]{label} память в запросе: {'ВКЛ' if value else 'ВЫКЛ'}[/dim]")
         return True
-    if low in ("working on", "working off"):
-        assistant.use_working = low.endswith("on")
-        console.print(f"[dim]Рабочая память в запросе: {'ON' if assistant.use_working else 'OFF'}[/dim]")
-        return True
-    if low.startswith("forget "):
-        key = user.split(maxsplit=1)[1].strip()
-        if memory.forget(key):
+    if name == "forget":
+        key = rest.strip()
+        if not key:
+            console.print("[dim]Формат: /forget название[/dim]")
+        elif memory.forget(key):
             console.print(f"[dim]Убрано из долговременной: {key}[/dim]")
         else:
-            console.print(f"[dim]Ключа '{key}' в долговременной нет.[/dim]")
+            console.print(f"[dim]Факта «{key}» в долговременной нет.[/dim]")
         return True
-    if low.startswith("remember "):
-        body = user.split(maxsplit=1)[1].strip()
+    if name in ("remember", "task"):
+        body = rest.strip()
+        if not body:
+            console.print(f"[dim]Формат: /{name} название = содержимое  (или просто /{name} текст)[/dim]")
+            return True
         if "=" in body:
             key, value = body.split("=", 1)
             key, value = key.strip(), value.strip()
-        else:
+        elif name == "remember":
             key, value = memory.next_note_key(), body
-        memory.remember(key, value)
-        console.print(Panel(f"[green]{key}[/green] = {value}", title="→ долговременная память",
-                            border_style="green"))
-        return True
-    if low.startswith("task "):
-        body = user.split(maxsplit=1)[1].strip()
-        if "=" in body:
-            key, value = body.split("=", 1)
-            key, value = key.strip(), value.strip()
         else:
             key, value = f"пункт_{len(memory.working) + 1}", body
-        memory.set_task(key, value)
-        console.print(Panel(f"[cyan]{key}[/cyan] = {value}", title="→ рабочая память",
-                            border_style="cyan"))
+        if name == "remember":
+            memory.remember(key, value)
+            console.print(Panel(f"[green]{key}[/green] = {value}",
+                                title="→ долговременная память", border_style="green"))
+        else:
+            memory.set_task(key, value)
+            console.print(Panel(f"[cyan]{key}[/cyan] = {value}",
+                                title="→ рабочая память", border_style="cyan"))
         return True
-    return False
+    console.print(f"[dim]Неизвестная команда /{name}. Набери /help.[/dim]")
+    return True
 
 
 def banner(assistant):
@@ -233,25 +274,29 @@ def banner(assistant):
         ("Ассистент с явной моделью памяти", "bold"),
         ("\nДень 11 · модель ", ""), (assistant.model, "bold cyan"),
         ("\n", ""), (loaded, "dim"),
-        ("\n\nТри слоя памяти хранятся в отдельных файлах в ", "dim"),
-        ("store/", "bold"), (". 'help' — команды.", "dim"),
+        ("\n\nПиши сообщение — обычный чат. Набери ", "dim"), ("/", "bold"),
+        (" для списка команд, ", "dim"), ("/help", "bold cyan"), (" — подробно.", "dim"),
     )
     console.print(Panel(body, border_style="magenta", box=box.DOUBLE))
 
 
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
-    sys.stdin.reconfigure(encoding="utf-8", errors="replace")
     assistant = Assistant()
     banner(assistant)
+    session = PromptSession(completer=SlashCompleter(), complete_while_typing=True)
     while True:
         try:
-            user = console.input("[bold magenta]Ты ›[/bold magenta] ").strip()
+            user = session.prompt("Ты › ").strip()
         except (EOFError, KeyboardInterrupt):
             break
-        if user == "" or user.lower() == "exit":
+        if user == "" or user.lower() in ("exit", "/exit"):
             break
-        if handle_command(assistant, user):
+        if user.startswith("/"):
+            parts = user[1:].split(maxsplit=1)
+            name = parts[0].lower() if parts else ""
+            rest = parts[1] if len(parts) > 1 else ""
+            handle_command(assistant, name, rest)
             continue
         with console.status("[dim]ассистент думает…[/dim]", spinner="dots"):
             answer, usage, messages = assistant.ask(user)
