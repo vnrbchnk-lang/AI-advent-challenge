@@ -5,6 +5,10 @@ import sys
 import requests
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.filters import completion_is_selected
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -38,13 +42,24 @@ DEMO_PROFILE = {
 DEMO_QUESTION = "Набросай старт сервиса авторизации для нашего проекта."
 
 COMMANDS = {
-    "/remember": "запомнить навсегда (профиль, факты). Пример: /remember стек = Kotlin",
-    "/task": "запомнить для текущей задачи. Пример: /task бюджет = 500к",
-    "/memory": "показать все три слоя памяти",
-    "/demo": "показать, как память влияет на ответ (с памятью и без)",
+    "/remember-forever": "запомнить навсегда (профиль, факты). Пример: /remember-forever стек = Kotlin",
+    "/remember-now": "запомнить для текущей задачи. Пример: /remember-now бюджет = 500к",
+    "/show-memory": "показать все три слоя памяти",
+    "/demo": "как память влияет на ответ (с памятью и без)",
     "/reset": "стереть всю память",
     "/help": "справка",
 }
+
+MENU_STYLE = Style.from_dict({
+    "prompt": "#af87ff bold",
+    "completion-menu": "bg:#1c1c1c",
+    "completion-menu.completion": "bg:#1c1c1c #9e9e9e",
+    "completion-menu.completion.current": "bg:#5f5fff #ffffff bold",
+    "completion-menu.meta.completion": "bg:#262626 #6c6c6c",
+    "completion-menu.meta.completion.current": "bg:#5f5fff #e4e4e4",
+    "scrollbar.background": "bg:#303030",
+    "scrollbar.button": "bg:#af87ff",
+})
 
 console = Console()
 
@@ -57,7 +72,7 @@ class SlashCompleter(Completer):
         for cmd, desc in COMMANDS.items():
             if cmd.startswith(text):
                 yield Completion(cmd, start_position=-len(text),
-                                 display=cmd, display_meta=desc)
+                                 display=f" {cmd} ", display_meta=f" {desc} ")
 
 
 class Assistant:
@@ -136,10 +151,10 @@ def show_help():
         ("Команды начинаются со ", ""), ("/", "bold"),
         (" — набери ", ""), ("/", "bold"), (" и появится список.\n\n", ""),
         ("Запоминание — это заметка ", "dim"), ("название = содержимое", "bold"),
-        (".\n  ", "dim"), ("/remember стек = Kotlin", "bold green"),
+        (".\n  ", "dim"), ("/remember-forever стек = Kotlin", "bold green"),
         (" → запомнит навсегда (профиль/факты).\n  ", "dim"),
-        ("/task бюджет = 500к", "bold cyan"), (" → запомнит для текущей задачи.\n", "dim"),
-        ("Можно и без «=» — просто ", "dim"), ("/remember люблю краткие ответы", "green"),
+        ("/remember-now бюджет = 500к", "bold cyan"), (" → запомнит для текущей задачи.\n", "dim"),
+        ("Можно и без «=» — просто ", "dim"), ("/remember-forever люблю краткие ответы", "green"),
         (", название придумается само.", "dim"),
     )
     table = Table(box=box.SIMPLE, expand=True, show_header=False)
@@ -176,17 +191,17 @@ def handle_command(assistant, name, rest):
     memory = assistant.memory
     if name == "help":
         show_help()
-    elif name == "memory":
+    elif name == "show-memory":
         show_memory(memory)
     elif name == "demo":
         run_demo(assistant)
     elif name == "reset":
         memory.reset()
         console.print(Panel("Вся память стёрта (все три слоя).", border_style="red"))
-    elif name == "remember":
-        save_fact(memory, "long", "remember", rest)
-    elif name == "task":
-        save_fact(memory, "working", "task", rest)
+    elif name == "remember-forever":
+        save_fact(memory, "long", "remember-forever", rest)
+    elif name == "remember-now":
+        save_fact(memory, "working", "remember-now", rest)
     else:
         console.print(f"[dim]Неизвестная команда /{name}. Набери /help.[/dim]")
 
@@ -209,10 +224,17 @@ def main():
     sys.stdout.reconfigure(encoding="utf-8")
     assistant = Assistant()
     banner(assistant)
-    session = PromptSession(completer=SlashCompleter(), complete_while_typing=True)
+    bindings = KeyBindings()
+
+    @bindings.add("enter", filter=completion_is_selected)
+    def _(event):
+        event.current_buffer.complete_state = None
+
+    session = PromptSession(completer=SlashCompleter(), complete_while_typing=True,
+                            key_bindings=bindings, style=MENU_STYLE)
     while True:
         try:
-            user = session.prompt("Ты › ").strip()
+            user = session.prompt(HTML("<prompt>Ты ›</prompt> ")).strip()
         except (EOFError, KeyboardInterrupt):
             break
         if user == "" or user.lower() in ("exit", "/exit"):
