@@ -174,7 +174,7 @@
 - Планируемая раскладка (уточняется по ходу заданий, будущие дни заранее НЕ пишем):
   - `memory.py` — день 11 (memory layers): short-term / working / long-term.
   - `profile.py` — персонализация (стиль / constraints / контекст).
-  - `state.py` — task state machine (стадии + allowed transitions).
+  - `state.py` — task state machine (стадии + allowed transitions). **Сюда же — переключение между задачами** (именованные таски, отдельная рабочая память на задачу): отложено из дня 11 осознанно, ляжет системно в state machine. В дне 11 рабочая память — один плоский KV-блок без мультизадачности (метод `clear_working()` в `memory.py` есть, в CLI не выведен).
   - `invariants.py` — инварианты + проверка кодом (линтер требований).
   - `prompt_builder.py` — сборка prompt из выбранных слоёв.
   - `agent.py` — собранный stateful-агент (LLM engine + всё выше).
