@@ -10,6 +10,7 @@ dependencies = ["requests", "rich", "prompt_toolkit"]
 
 [project.scripts]
 agent11 = "assistant.cli11:main"
+agent = "assistant.cli:main"
 
 [tool.setuptools]
 packages = ["assistant"]
