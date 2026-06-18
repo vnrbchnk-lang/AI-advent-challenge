@@ -14,28 +14,35 @@ TRANSITIONS = {
 }
 
 EXPECTED = {
-    "planning": "составить план и утвердить его (/approve-plan → execution)",
-    "execution": "выполнять утверждённый план; не перескакивать в done",
-    "validation": "проверить результат на инварианты",
+    "planning": "составить план: /plan <текст>, затем /next в execution",
+    "execution": "выполнять план; /next в validation или /back в planning",
+    "validation": "проверить результат на инварианты; /next в done или /back в execution",
     "done": "задача завершена",
 }
 
-EMPTY = {"task": None, "stage": "planning", "step": 0, "plan": None, "results": []}
+
+def _new_task():
+    return {"stage": "planning", "step": 0, "plan": None, "results": [], "status": "active"}
 
 
-class TaskState:
+class TaskStore:
     def __init__(self, ephemeral=False):
         self.ephemeral = ephemeral
         if ephemeral:
-            self.data = dict(EMPTY)
+            self.data = {"tasks": {}, "current": None}
             return
         STORE_DIR.mkdir(exist_ok=True)
         self.data = self._load()
 
     def _load(self):
         if STATE_PATH.exists():
-            return json.loads(STATE_PATH.read_text(encoding="utf-8"))
-        return dict(EMPTY)
+            try:
+                raw = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+                if isinstance(raw, dict) and "tasks" in raw:
+                    return raw
+            except (ValueError, OSError):
+                pass
+        return {"tasks": {}, "current": None}
 
     def _save(self):
         if self.ephemeral:
@@ -43,54 +50,95 @@ class TaskState:
         STATE_PATH.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     @property
-    def active(self):
-        return self.data["task"] is not None
+    def tasks(self):
+        return self.data["tasks"]
 
     @property
-    def stage(self):
-        return self.data["stage"]
+    def current(self):
+        return self.data["current"]
 
-    def allowed(self):
-        return TRANSITIONS[self.data["stage"]]
+    def current_task(self):
+        return self.tasks.get(self.current) if self.current else None
 
-    def start(self, name):
-        self.data = dict(EMPTY)
-        self.data["task"] = name
-        self.data["results"] = []
+    def exists(self, name):
+        return name in self.tasks
+
+    def create(self, name):
+        self.tasks[name] = _new_task()
+        self.data["current"] = name
         self._save()
 
-    def set_plan(self, text):
-        self.data["plan"] = text
+    def enter(self, name):
+        self.data["current"] = name
+        task = self.tasks[name]
+        if task["status"] == "paused" and task["stage"] != "done":
+            task["status"] = "active"
         self._save()
 
-    def add_result(self, text):
-        self.data["results"].append(text)
+    def leave(self):
+        self.data["current"] = None
         self._save()
 
-    def transition(self, target):
-        current = self.data["stage"]
+    def set_plan(self, name, text):
+        self.tasks[name]["plan"] = text
+        self._save()
+
+    def add_result(self, name, text):
+        self.tasks[name]["results"].append(text)
+        self._save()
+
+    def allowed(self, name):
+        return TRANSITIONS[self.tasks[name]["stage"]]
+
+    def forward_target(self, name):
+        index = STAGES.index(self.tasks[name]["stage"])
+        return STAGES[index + 1] if index + 1 < len(STAGES) else None
+
+    def back_target(self, name):
+        index = STAGES.index(self.tasks[name]["stage"])
+        return STAGES[index - 1] if index > 0 else None
+
+    def transition(self, name, target):
+        task = self.tasks[name]
+        current = task["stage"]
         if target not in STAGES:
-            return False, f"нет такой стадии: {target}. Доступны: {', '.join(STAGES)}"
+            return False, f"нет такой стадии: {target}"
         if target not in TRANSITIONS[current]:
             allowed = ", ".join(TRANSITIONS[current]) or "—"
-            return False, f"переход {current} → {target} запрещён. Из {current} можно только в: {allowed}"
-        if target == "execution" and not self.data["plan"]:
+            return False, f"переход {current} → {target} запрещён. Можно только в: {allowed}"
+        if target == "execution" and not task["plan"]:
             return False, "нельзя в execution без утверждённого плана (сначала /plan <текст>)"
-        self.data["stage"] = target
-        self.data["step"] += 1
+        task["stage"] = target
+        task["step"] += 1
+        if target == "done":
+            task["status"] = "done"
         self._save()
         return True, f"стадия: {current} → {target}"
 
+    def pause(self, name):
+        task = self.tasks[name]
+        if task["stage"] != "done":
+            task["status"] = "paused"
+        self.data["current"] = None
+        self._save()
+
+    def delete(self, name):
+        self.tasks.pop(name, None)
+        if self.data["current"] == name:
+            self.data["current"] = None
+        self._save()
+
     def reset(self):
-        self.data = dict(EMPTY)
+        self.data = {"tasks": {}, "current": None}
         self._save()
 
     def as_prompt(self):
-        if not self.active:
+        task = self.current_task()
+        if not task:
             return ""
-        return ("Состояние задачи (task state machine) — работай строго в рамках текущей стадии, "
+        return ("Состояние текущей задачи (task state machine) — работай строго в рамках стадии, "
                 "не перескакивай этапы:\n"
-                f"- задача: {self.data['task']}\n"
-                f"- стадия: {self.data['stage']} (шаг {self.data['step']})\n"
-                f"- ожидаемое действие: {EXPECTED[self.data['stage']]}\n"
-                f"- утверждённый план: {self.data['plan'] or '—'}")
+                f"- задача: {self.current}\n"
+                f"- стадия: {task['stage']} (шаг {task['step']})\n"
+                f"- ожидаемое действие: {EXPECTED[task['stage']]}\n"
+                f"- утверждённый план: {task['plan'] or '—'}")

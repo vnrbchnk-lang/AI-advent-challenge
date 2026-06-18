@@ -18,7 +18,7 @@ from rich import box
 
 from assistant.memory import MemoryLayers
 from assistant.profile import Profile, FIELDS
-from assistant.state import TaskState, STAGES, TRANSITIONS, EXPECTED
+from assistant.state import TaskStore, STAGES, TRANSITIONS, EXPECTED
 from assistant.invariants import Invariants
 from assistant.validator import critic_check
 from assistant.prompt_builder import build_messages
@@ -41,15 +41,13 @@ STEEL_DIM = "#4b4f52"
 WARN = "#b58900"
 
 COMMANDS = {
-    "/status": "показать всё состояние: память, профиль, инварианты, стадия задачи",
+    "/status": "показать всё состояние: задачи, инварианты, профиль, память",
+    "/task": "открыть задачу в её рабочем пространстве (создаёт новую или продолжает). Пример: /task сервис авторизации",
     "/interview": "стартовое интервью — собрать профиль вопросами",
     "/remember-forever": "долговременная память. Пример: /remember-forever решение = используем JWT",
-    "/remember-now": "рабочая память задачи. Пример: /remember-now эндпоинт = /login",
+    "/remember-now": "рабочая память. Пример: /remember-now эндпоинт = /login",
     "/profile-set": "поле профиля вручную. Пример: /profile-set стиль = краткий",
     "/invariant-add": "инвариант + запретные слова. Пример: /invariant-add Только Kotlin :: python, java",
-    "/task": "начать задачу (стадия planning). Пример: /task сервис авторизации",
-    "/plan": "утвердить план задачи. Пример: /plan 1) роуты 2) JWT 3) хранение",
-    "/go": "переход стадии (код проверит легальность). Пример: /go execution",
     "/demo1": "память: один вопрос с твоей памятью и без неё",
     "/demo2": "персонализация: один вопрос с твоим профилем и без него",
     "/demo3": "состояние задачи: как стадия влияет на ответ + переходы автомата",
@@ -58,8 +56,20 @@ COMMANDS = {
     "/help": "справка",
 }
 
+WORKSPACE_COMMANDS = {
+    "/plan": "утвердить план задачи. Пример: /plan 1) роуты 2) JWT 3) хранение",
+    "/next": "перейти на следующую стадию (код проверит легальность)",
+    "/back": "вернуться на предыдущую стадию",
+    "/status": "показать карточку этой задачи",
+    "/pause": "приостановить задачу и выйти в общий чат",
+    "/delete": "удалить эту задачу",
+    "/help": "справка по рабочему пространству",
+    "/exit": "выйти в общий чат (задача остаётся активной)",
+}
+
 MENU_STYLE = Style.from_dict({
     "prompt": f"{STEEL_BRIGHT} bold",
+    "bottom-toolbar": "bg:#2a2d2e #9aa0a6",
     "completion-menu": "bg:#1b1d1e",
     "completion-menu.completion": "bg:#1b1d1e #8a8f94",
     "completion-menu.completion.current": "bg:#71797e #f0f2f4 bold",
@@ -88,7 +98,7 @@ DEMO_PROFILE_QUESTION = "Как сделать дебаунс пользоват
 
 DEMO_STATE_QUESTION = "Сразу дай финальный код решения, без обсуждений и плана."
 SAMPLE_STATE_BLOCK = (
-    "Состояние задачи (task state machine) — работай строго в рамках текущей стадии, "
+    "Состояние текущей задачи (task state machine) — работай строго в рамках стадии, "
     "не перескакивай этапы:\n"
     "- задача: сервис авторизации\n"
     "- стадия: planning (шаг 0)\n"
@@ -109,13 +119,18 @@ INTERVIEW_QUESTIONS = [
     ("роль", "Кто ты и зачем тебе агент? (роль и цель)"),
 ]
 
+STATUS_LABEL = {"active": "в работе", "paused": "пауза", "done": "готово"}
+
 
 class SlashCompleter(Completer):
+    def __init__(self, commands):
+        self.commands = commands
+
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
         if not text.startswith("/") or " " in text:
             return
-        for cmd, desc in COMMANDS.items():
+        for cmd, desc in self.commands.items():
             if cmd.startswith(text):
                 yield Completion(cmd, start_position=-len(text),
                                  display=f" {cmd} ", display_meta=f" {desc} ")
@@ -128,7 +143,7 @@ class Assistant:
         self.api_key = os.environ["PROXYAPI_KEY"]
         self.memory = MemoryLayers()
         self.profile = Profile()
-        self.state = TaskState()
+        self.state = TaskStore()
         self.invariants = Invariants()
 
     def call_api(self, messages, model=None):
@@ -166,6 +181,16 @@ class Assistant:
         return answer, usage, messages, hits
 
 
+def tasks_toolbar(store):
+    if not store.tasks:
+        return " задачи: нет — /task <имя> создаёт новую "
+    parts = []
+    for name, task in store.tasks.items():
+        mark = " (тек.)" if name == store.current else ""
+        parts.append(f"{name}: {task['stage']} / {STATUS_LABEL[task['status']]}{mark}")
+    return " задачи:   " + "    ".join(parts) + " "
+
+
 def ab_run(assistant, question, with_block, off_status):
     base = [{"role": "system", "content": assistant.system}]
     user = {"role": "user", "content": question}
@@ -173,6 +198,18 @@ def ab_run(assistant, question, with_block, off_status):
         off_answer, _ = assistant.call_api(base + [user])
         on_answer, _ = assistant.call_api(base + [{"role": "system", "content": with_block}, user])
     return off_answer, on_answer
+
+
+def stage_pipeline(current=None):
+    parts = []
+    for i, s in enumerate(STAGES):
+        if s == current:
+            parts.append(f"[{STEEL_PALE} bold]\\[{s}][/{STEEL_PALE} bold]")
+        else:
+            parts.append(f"[dim]{s}[/dim]")
+        if i < len(STAGES) - 1:
+            parts.append("[dim]→[/dim]")
+    return " ".join(parts)
 
 
 def render_memory(memory):
@@ -208,37 +245,27 @@ def render_invariants(invariants):
     return Panel(body, title="ИНВАРИАНТЫ — нерушимые, хранятся отдельно", border_style=STEEL)
 
 
-def stage_pipeline(current=None):
-    parts = []
-    for i, s in enumerate(STAGES):
-        if s == current:
-            parts.append(f"[{STEEL_PALE} bold]\\[{s}][/{STEEL_PALE} bold]")
-        else:
-            parts.append(f"[dim]{s}[/dim]")
-        if i < len(STAGES) - 1:
-            parts.append("[dim]→[/dim]")
-    return " ".join(parts)
-
-
-def render_state(state):
-    current = state.stage if state.active else None
-    head = f"[{STEEL_PALE}]стадии задачи:[/{STEEL_PALE}] {stage_pipeline(current)}"
-    if not state.active:
-        body = head + "\n[dim]задача не начата — /task <название> (стартует с planning)[/dim]"
-    else:
-        d = state.data
-        allowed = ", ".join(state.allowed()) or "—"
-        body = (head + "\n"
-                f"[{STEEL_PALE}]задача:[/{STEEL_PALE}] {d['task']}\n"
-                f"[{STEEL_PALE}]стадия:[/{STEEL_PALE}] {d['stage']}  [dim](шаг {d['step']})[/dim]\n"
-                f"[{STEEL_PALE}]ожидается:[/{STEEL_PALE}] {EXPECTED[d['stage']]}\n"
-                f"[{STEEL_PALE}]план:[/{STEEL_PALE}] {d['plan'] or '—'}\n"
-                f"[{STEEL_PALE}]легальные переходы:[/{STEEL_PALE}] {allowed}")
-    return Panel(body, title="СОСТОЯНИЕ ЗАДАЧИ — task state machine", border_style=STEEL)
+def render_tasks(store):
+    if not store.tasks:
+        body = (f"[{STEEL_PALE}]стадии:[/{STEEL_PALE}] {stage_pipeline(None)}\n"
+                "[dim]задач нет — /task <имя> создаёт и открывает рабочее пространство[/dim]")
+        return Panel(body, title="ЗАДАЧИ — task state machine (мультизадачность)", border_style=STEEL)
+    table = Table(box=box.ROUNDED, expand=True)
+    table.add_column("задача", style=f"bold {STEEL_BRIGHT}", no_wrap=True)
+    table.add_column("стадия")
+    table.add_column("статус", no_wrap=True)
+    table.add_column("шаг", justify="right", no_wrap=True)
+    table.add_column("план")
+    for name, task in store.tasks.items():
+        marker = f" [{STEEL_PALE}](тек.)[/{STEEL_PALE}]" if name == store.current else ""
+        plan = (task["plan"][:40] + "…") if task["plan"] and len(task["plan"]) > 40 else (task["plan"] or "—")
+        table.add_row(name + marker, task["stage"], STATUS_LABEL[task["status"]],
+                      str(task["step"]), plan)
+    return Panel(table, title="ЗАДАЧИ — task state machine (мультизадачность)", border_style=STEEL)
 
 
 def show_status(assistant):
-    console.print(render_state(assistant.state))
+    console.print(render_tasks(assistant.state))
     console.print(render_invariants(assistant.invariants))
     console.print(render_profile(assistant.profile))
     console.print(render_memory(assistant.memory))
@@ -251,11 +278,13 @@ def show_help():
     for cmd, desc in COMMANDS.items():
         table.add_row(cmd, desc)
     intro = Text.assemble(
-        ("Stateful-агент: память + профиль + состояние задачи + инварианты в одном.\n", ""),
+        ("Stateful-агент: память + профиль + задачи (стадии) + инварианты в одном.\n", ""),
         ("Просто пиши — обычный чат (учитывает все слои). Команды — со ", "dim"), ("/", "bold"),
         (".\n", "dim"),
-        ("Демо показывают каждую фичу как ", "dim"), ("два запроса: с твоими данными и без", f"bold {STEEL_PALE}"),
-        (".\nСначала заполни данные (/interview, /remember-forever, /invariant-add, /task), потом жми демо.\n", "dim"),
+        ("Задачи: ", "dim"), ("/task <имя>", f"bold {STEEL_PALE}"),
+        (" открывает рабочее пространство со стадиями planning→execution→validation→done. "
+         "Список задач всегда виден в нижней панели.\n", "dim"),
+        ("Демо = ", "dim"), ("с твоими данными и без них", f"bold {STEEL_PALE}"), (": ", "dim"),
         ("/demo1", f"bold {STEEL_PALE}"), (" память · ", "dim"),
         ("/demo2", f"bold {STEEL_PALE}"), (" профиль · ", "dim"),
         ("/demo3", f"bold {STEEL_PALE}"), (" состояние · ", "dim"),
@@ -323,40 +352,48 @@ def cmd_invariant_add(assistant, rest):
                         title="→ инвариант", border_style=STEEL))
 
 
-def cmd_task(assistant, rest):
-    name = rest.strip()
-    if not name:
-        console.print("[dim]Формат: /task <название задачи>[/dim]")
-        return
-    assistant.state.start(name)
-    console.print(Panel(f"Задача: [bold]{name}[/bold]\n"
-                        f"Стадии: {stage_pipeline('planning')}\n"
-                        f"[dim]{EXPECTED['planning']}[/dim]",
-                        title="→ задача начата", border_style=STEEL))
+def show_workspace_header(store, name):
+    task = store.tasks[name]
+    forward = store.forward_target(name)
+    back = store.back_target(name)
+    nav = []
+    if forward and forward in TRANSITIONS[task["stage"]]:
+        nav.append(f"/next → {forward}")
+    elif forward:
+        nav.append(f"/next → {forward} [dim](после условий)[/dim]")
+    if back and back in TRANSITIONS[task["stage"]]:
+        nav.append(f"/back → {back}")
+    nav_line = "   ".join(nav) or "дальше некуда (задача завершена)"
+    body = (f"[{STEEL_PALE}]задача:[/{STEEL_PALE}] {name}   "
+            f"[{STEEL_PALE}]статус:[/{STEEL_PALE}] {STATUS_LABEL[task['status']]}\n"
+            f"[{STEEL_PALE}]стадии:[/{STEEL_PALE}] {stage_pipeline(task['stage'])}\n"
+            f"[{STEEL_PALE}]ожидается:[/{STEEL_PALE}] {EXPECTED[task['stage']]}\n"
+            f"[{STEEL_PALE}]план:[/{STEEL_PALE}] {task['plan'] or '—'}\n"
+            f"[{STEEL_PALE}]навигация:[/{STEEL_PALE}] {nav_line}")
+    console.print(Panel(body, title=f"РАБОЧЕЕ ПРОСТРАНСТВО ЗАДАЧИ · {name}", border_style=STEEL_BRIGHT,
+                        box=box.DOUBLE))
 
 
-def cmd_plan(assistant, rest):
-    text = rest.strip()
-    if not assistant.state.active:
-        console.print("[dim]Сначала начни задачу: /task <название>[/dim]")
-        return
-    if not text:
-        console.print("[dim]Формат: /plan <текст плана>[/dim]")
-        return
-    assistant.state.set_plan(text)
-    console.print(Panel(text, title="→ план утверждён (можно /go execution)", border_style=STEEL))
+def ask_in_task(assistant, name, text):
+    assistant.memory.add_dialog("user", text)
+    messages = build_messages(assistant.system, assistant.memory, assistant.profile,
+                              assistant.state, assistant.invariants)
+    with console.status("[dim]агент работает над задачей…[/dim]", spinner="dots"):
+        answer, usage = assistant.call_api(messages)
+    assistant.memory.add_dialog("assistant", answer)
+    assistant.state.add_result(name, answer)
+    hits = assistant.invariants.lint(answer)
+    console.print(Panel(answer, title=f"АССИСТЕНТ · {name}", border_style=STEEL, box=box.ROUNDED))
+    turn_footer(assistant, usage, len(messages), hits)
 
 
-def cmd_go(assistant, rest):
-    target = rest.strip().lower()
-    if not assistant.state.active:
-        console.print("[dim]Сначала начни задачу: /task <название>[/dim]")
-        return
+def workspace_next(assistant, name):
+    store = assistant.state
+    target = store.forward_target(name)
     if not target:
-        console.print(f"[dim]Формат: /go <стадия>. Легальные сейчас: "
-                      f"{', '.join(assistant.state.allowed()) or '—'}[/dim]")
+        console.print("[dim]Задача уже на стадии done.[/dim]")
         return
-    ok, message = assistant.state.transition(target)
+    ok, message = store.transition(name, target)
     if not ok:
         console.print(Panel(message, title="× переход отклонён кодом", border_style=WARN))
         return
@@ -364,6 +401,119 @@ def cmd_go(assistant, rest):
                         title="→ стадия изменена", border_style=STEEL))
     if target == "validation":
         run_validation_critic(assistant)
+
+
+def workspace_back(assistant, name):
+    store = assistant.state
+    target = store.back_target(name)
+    if not target:
+        console.print("[dim]Назад некуда — это первая стадия.[/dim]")
+        return
+    ok, message = store.transition(name, target)
+    if not ok:
+        console.print(Panel(message, title="× переход отклонён кодом", border_style=WARN))
+        return
+    console.print(Panel(f"{message}\n[dim]{EXPECTED[target]}[/dim]",
+                        title="→ стадия изменена", border_style=STEEL))
+
+
+def workspace_help():
+    table = Table(box=box.SIMPLE, expand=True, show_header=False)
+    table.add_column("команда", style=f"bold {STEEL_BRIGHT}", no_wrap=True)
+    table.add_column("что делает")
+    for cmd, desc in WORKSPACE_COMMANDS.items():
+        table.add_row(cmd, desc)
+    console.print(Panel(table, border_style=STEEL,
+                        title="рабочее пространство задачи — команды (просто текст = вопрос агенту)"))
+
+
+def handle_workspace_cmd(assistant, name, cmd, rest):
+    store = assistant.state
+    if cmd == "plan":
+        if not rest:
+            console.print("[dim]Формат: /plan <текст плана>[/dim]")
+            return False
+        store.set_plan(name, rest)
+        console.print(Panel(rest, title="→ план утверждён (теперь /next в execution)", border_style=STEEL))
+    elif cmd == "next":
+        workspace_next(assistant, name)
+    elif cmd == "back":
+        workspace_back(assistant, name)
+    elif cmd in ("status", "show"):
+        show_workspace_header(store, name)
+    elif cmd == "help":
+        workspace_help()
+    elif cmd == "pause":
+        store.pause(name)
+        console.print(Panel(f"Задача «{name}» приостановлена (статус: пауза). "
+                            f"Вернёшься — /task {name}.",
+                            title="задача на паузе", border_style=STEEL))
+        return True
+    elif cmd == "delete":
+        store.delete(name)
+        console.print(Panel(f"Задача «{name}» удалена.", title="задача удалена", border_style=WARN))
+        return True
+    elif cmd == "exit":
+        return True
+    else:
+        console.print(f"[dim]Неизвестная команда /{cmd}. Внутри задачи: /help.[/dim]")
+    return False
+
+
+def run_workspace(assistant, name):
+    store = assistant.state
+    store.enter(name)
+    show_workspace_header(store, name)
+    completer = SlashCompleter(WORKSPACE_COMMANDS)
+    bindings = KeyBindings()
+
+    @bindings.add("enter", filter=completion_is_selected)
+    def _(event):
+        event.current_buffer.complete_state = None
+
+    session = PromptSession(completer=completer, complete_while_typing=True,
+                            key_bindings=bindings, style=MENU_STYLE,
+                            bottom_toolbar=lambda: tasks_toolbar(store))
+    left_into_main = False
+    while True:
+        try:
+            line = session.prompt(HTML(f"<prompt>{name} ›</prompt> ")).strip()
+        except (EOFError, KeyboardInterrupt):
+            store.leave()
+            left_into_main = True
+            break
+        if line == "" or line.lower() == "exit":
+            store.leave()
+            left_into_main = True
+            break
+        if line.startswith("/"):
+            wcmd, _, wrest = line[1:].partition(" ")
+            if wcmd.lower() == "exit":
+                store.leave()
+                left_into_main = True
+                break
+            done = handle_workspace_cmd(assistant, name, wcmd.lower(), wrest.strip())
+            if done:
+                break
+            continue
+        ask_in_task(assistant, name, line)
+    if left_into_main:
+        console.print(f"[dim]Вышел из задачи «{name}». Она осталась в списке. Вернулся в общий чат.[/dim]")
+
+
+def cmd_task(assistant, rest):
+    name = rest.strip()
+    store = assistant.state
+    if not name:
+        console.print(render_tasks(store))
+        console.print("[dim]Открыть/создать: /task <имя>[/dim]")
+        return
+    if not store.exists(name):
+        store.create(name)
+        console.print(Panel(f"Создана задача: [bold]{name}[/bold]\n"
+                            f"Стадии: {stage_pipeline('planning')}",
+                            title="→ новая задача", border_style=STEEL))
+    run_workspace(assistant, name)
 
 
 def run_validation_critic(assistant):
@@ -453,17 +603,19 @@ def run_demo_profile(assistant, question=""):
 
 def run_demo_state(assistant, question=""):
     question = question.strip() or DEMO_STATE_QUESTION
-    active = assistant.state.active
+    current = assistant.state.current_task()
+    active = current is not None
     block = assistant.state.as_prompt() if active else SAMPLE_STATE_BLOCK
-    stage = assistant.state.stage if active else "planning"
-    source = f"ТВОЯ задача, стадия {stage}" if active else "задачи нет — взят образец (стадия planning)"
+    stage = current["stage"] if active else "planning"
+    source = (f"ТВОЯ задача «{assistant.state.current}», стадия {stage}" if active
+              else "активной задачи нет — взят образец (стадия planning)")
 
     table = Table(box=box.ROUNDED, expand=True)
     table.add_column("стадия", style=f"bold {STEEL_BRIGHT}")
     table.add_column("ожидаемое действие")
     table.add_column("легальные переходы")
     for s in STAGES:
-        marker = " ◀ сейчас" if active and s == stage else ""
+        marker = " ◀ сейчас" if s == stage else ""
         table.add_row(s + marker, EXPECTED[s], ", ".join(TRANSITIONS[s]) or "—")
     console.print(Panel(table, title="КАРТА АВТОМАТА (этап · шаг · ожидаемое действие)", border_style=STEEL))
 
@@ -478,23 +630,22 @@ def run_demo_state(assistant, question=""):
         Panel(on, title=f"С СОСТОЯНИЕМ (держит стадию {stage})", border_style=STEEL_BRIGHT),
     ], equal=True, expand=True))
 
-    demo = TaskState(ephemeral=True)
-    demo.start("проверка переходов")
-    ok_jump, msg_jump = demo.transition("done")
-    demo.set_plan("план")
-    ok_step, msg_step = demo.transition("execution")
+    demo = TaskStore(ephemeral=True)
+    demo.create("проверка переходов")
+    ok_jump, msg_jump = demo.transition("проверка переходов", "done")
+    demo.set_plan("проверка переходов", "план")
+    ok_step, msg_step = demo.transition("проверка переходов", "execution")
     console.print(Panel(
-        f"[{WARN}]×[/{WARN}] /go done из planning: {msg_jump}\n"
-        f"[{STEEL_PALE}]✓[/{STEEL_PALE}] /go execution (план есть): {msg_step}\n"
+        f"[{WARN}]×[/{WARN}] /next через этап (planning→done): {msg_jump}\n"
+        f"[{STEEL_PALE}]✓[/{STEEL_PALE}] planning→execution (план есть): {msg_step}\n"
         "[dim]Легальность переходов проверяет КОД (state.py), не промпт — нелегальный отклоняется.[/dim]",
         title="ПЕРЕХОДЫ ПОД КОНТРОЛЕМ КОДА", border_style=STEEL))
     console.print(Panel(
-        "[bold]Пауза:[/bold] состояние пишется в store/state.json на каждом шаге.\n"
-        "[bold]Продолжение без повторных объяснений:[/bold] закрой агента на любой стадии — при "
-        "следующем запуске он загрузит стадию, план и результаты и продолжит с того же места.\n"
-        "[dim]Проверь живьём: /task демо → /plan ... → /go execution → выход → запусти снова → "
-        "/status покажет ту же стадию и план.[/dim]",
-        title="ПАУЗА И ПРОДОЛЖЕНИЕ", border_style=STEEL))
+        "[bold]Пауза:[/bold] /pause внутри задачи или просто выход — стадия и план пишутся в "
+        "store/state.json.\n[bold]Продолжение без повторных объяснений:[/bold] /task <имя> снова — "
+        "агент грузит стадию, план и результаты и продолжает с того же места.\n"
+        "[dim]Несколько задач живут параллельно — список со статусами всегда в нижней панели.[/dim]",
+        title="ПАУЗА, ПРОДОЛЖЕНИЕ, МУЛЬТИЗАДАЧНОСТЬ", border_style=STEEL))
 
 
 def run_demo_invariants(assistant, question=""):
@@ -552,6 +703,8 @@ def handle_command(assistant, name, rest):
         show_help()
     elif name == "status":
         show_status(assistant)
+    elif name == "task":
+        cmd_task(assistant, rest)
     elif name == "interview":
         run_interview(assistant)
     elif name == "remember-forever":
@@ -575,12 +728,6 @@ def handle_command(assistant, name, rest):
         cmd_profile_set(assistant, rest)
     elif name == "invariant-add":
         cmd_invariant_add(assistant, rest)
-    elif name == "task":
-        cmd_task(assistant, rest)
-    elif name == "plan":
-        cmd_plan(assistant, rest)
-    elif name == "go":
-        cmd_go(assistant, rest)
     elif name == "demo1":
         run_demo_memory(assistant, rest)
     elif name == "demo2":
@@ -594,8 +741,7 @@ def handle_command(assistant, name, rest):
         assistant.profile.clear()
         assistant.state.reset()
         assistant.invariants.clear()
-        console.print(Panel("Стёрто всё: память, профиль, состояние задачи, инварианты.",
-                            border_style=STEEL))
+        console.print(Panel("Стёрто всё: задачи, инварианты, профиль, память.", border_style=STEEL))
     else:
         console.print(f"[dim]Неизвестная команда /{name}. Набери /help.[/dim]")
 
@@ -604,19 +750,20 @@ def banner(assistant):
     s = assistant
     loaded = (f"память: кратк {len(s.memory.short_term)} · раб {len(s.memory.working)} · "
               f"долг {len(s.memory.long_term)}   профиль: {len(s.profile.data)}   "
-              f"инвариантов: {len(s.invariants.items)}   "
-              f"задача: {s.state.data['task'] or '—'} ({s.state.stage})")
+              f"инвариантов: {len(s.invariants.items)}   задач: {len(s.state.tasks)}")
     body = Text.assemble(
         ("Stateful-агент", "bold"),
-        ("  ·  память · профиль · состояние · инварианты  ·  модель ", ""),
+        ("  ·  память · профиль · задачи · инварианты  ·  модель ", ""),
         (s.model, f"bold {STEEL_BRIGHT}"),
         ("\n", ""), (loaded, "dim"),
         ("\nстадии задачи: planning → execution → validation → done", "dim"),
-        ("\n\nПиши сообщение — обычный чат (учитывает все слои). Набери ", "dim"), ("/", "bold"),
-        (" для команд, ", "dim"), ("/help", f"bold {STEEL_BRIGHT}"), (" — подробно.\n", "dim"),
+        ("\n\nПиши сообщение — обычный чат. ", "dim"),
+        ("/task <имя>", f"bold {STEEL_PALE}"), (" — рабочее пространство задачи. ", "dim"),
+        ("Набери ", "dim"), ("/", "bold"), (" для команд, ", "dim"),
+        ("/help", f"bold {STEEL_BRIGHT}"), (" — подробно.\n", "dim"),
         ("Демо = ", "dim"), ("с твоими данными и без них", f"bold {STEEL_PALE}"),
         (": ", "dim"), ("/demo1 /demo2 /demo3 /demo4", f"bold {STEEL_PALE}"),
-        (". Пустая строка — выход.", "dim"),
+        (". Список задач — в нижней панели. Пустая строка — выход.", "dim"),
     )
     console.print(Panel(body, border_style=STEEL, box=box.DOUBLE))
 
@@ -631,8 +778,9 @@ def main():
     def _(event):
         event.current_buffer.complete_state = None
 
-    session = PromptSession(completer=SlashCompleter(), complete_while_typing=True,
-                            key_bindings=bindings, style=MENU_STYLE)
+    session = PromptSession(completer=SlashCompleter(COMMANDS), complete_while_typing=True,
+                            key_bindings=bindings, style=MENU_STYLE,
+                            bottom_toolbar=lambda: tasks_toolbar(assistant.state))
     while True:
         try:
             user = session.prompt(HTML("<prompt>Ты ›</prompt> ")).strip()
