@@ -42,7 +42,7 @@ WARN = "#b58900"
 
 COMMANDS = {
     "/status": "показать всё состояние: память, профиль, инварианты, стадия задачи",
-    "/interview": "стартовое интервью — собрать профиль вопросами (день 12)",
+    "/interview": "стартовое интервью — собрать профиль вопросами",
     "/remember-forever": "долговременная память. Пример: /remember-forever решение = используем JWT",
     "/remember-now": "рабочая память задачи. Пример: /remember-now эндпоинт = /login",
     "/profile-set": "поле профиля вручную. Пример: /profile-set стиль = краткий",
@@ -50,10 +50,10 @@ COMMANDS = {
     "/task": "начать задачу (стадия planning). Пример: /task сервис авторизации",
     "/plan": "утвердить план задачи. Пример: /plan 1) роуты 2) JWT 3) хранение",
     "/go": "переход стадии (код проверит легальность). Пример: /go execution",
-    "/demo1": "день 11 — модель памяти: один вопрос с памятью и без",
-    "/demo2": "день 12 — персонализация: один вопрос, два профиля",
-    "/demo3": "день 13 — task state machine: стадии, легальные/нелегальные переходы, пауза/резюм",
-    "/demo4": "день 14 — инварианты: конфликт запроса и инварианта, отказ + проверка кодом и критиком",
+    "/demo1": "память: один вопрос с твоей памятью и без неё",
+    "/demo2": "персонализация: один вопрос с твоим профилем и без него",
+    "/demo3": "состояние задачи: как стадия влияет на ответ + переходы автомата",
+    "/demo4": "инварианты: ответ с твоими ограничениями и без них + проверка кодом и критиком",
     "/reset": "стереть всё состояние",
     "/help": "справка",
 }
@@ -78,29 +78,29 @@ DEMO_MEM_FACTS = {
 }
 DEMO_MEM_QUESTION = "Набросай старт сервиса авторизации для нашего проекта."
 
-DEMO_PROFILE_QUESTION = "Как сделать дебаунс пользовательского ввода в приложении?"
-DEMO_PROFILE_A = {
+DEMO_PROFILE_SAMPLE = {
     "стиль": "краткий, без воды",
     "формат": "код-first",
     "уровень": "senior",
     "роль": "тимлид, нужен быстрый скелет",
 }
-DEMO_PROFILE_B = {
-    "стиль": "дружеский, подробно",
-    "формат": "списки с пояснениями",
-    "уровень": "junior",
-    "роль": "студент, учится с нуля",
-}
+DEMO_PROFILE_QUESTION = "Как сделать дебаунс пользовательского ввода в приложении?"
+
+DEMO_STATE_QUESTION = "Сразу дай финальный код решения, без обсуждений и плана."
+SAMPLE_STATE_BLOCK = (
+    "Состояние задачи (task state machine) — работай строго в рамках текущей стадии, "
+    "не перескакивай этапы:\n"
+    "- задача: сервис авторизации\n"
+    "- стадия: planning (шаг 0)\n"
+    "- ожидаемое действие: составить план и утвердить его; код будет на стадии execution\n"
+    "- утверждённый план: —"
+)
 
 DEMO_INV_INVARIANTS = [
     {"rule": "Стек только Kotlin. Python запрещён.", "forbid": ["python"]},
     {"rule": "Архитектура только MVI. MVVM и MVP запрещены.", "forbid": ["mvvm", "mvp"]},
 ]
 DEMO_INV_QUESTION = "Набросай быстрый прототип экрана на Python с архитектурой MVVM."
-DEMO_INV_BAD_ANSWER = (
-    "Без проблем! Вот прототип на Python, я выбрал архитектуру MVVM: "
-    "класс ViewModel хранит состояние, View подписывается на LiveData..."
-)
 
 INTERVIEW_QUESTIONS = [
     ("стиль", "Как тебе отвечать по стилю? (формальный / дружеский / краткий)"),
@@ -166,6 +166,15 @@ class Assistant:
         return answer, usage, messages, hits
 
 
+def ab_run(assistant, question, with_block, off_status):
+    base = [{"role": "system", "content": assistant.system}]
+    user = {"role": "user", "content": question}
+    with console.status(off_status, spinner="dots"):
+        off_answer, _ = assistant.call_api(base + [user])
+        on_answer, _ = assistant.call_api(base + [{"role": "system", "content": with_block}, user])
+    return off_answer, on_answer
+
+
 def render_memory(memory):
     table = Table(box=box.ROUNDED, expand=True, show_lines=True)
     table.add_column("Слой", style="bold", no_wrap=True)
@@ -176,7 +185,7 @@ def render_memory(memory):
     table.add_row(Text("КРАТКОСРОЧНАЯ", style=STEEL_BRIGHT), short)
     table.add_row(Text("РАБОЧАЯ", style=STEEL_BRIGHT), working)
     table.add_row(Text("ДОЛГОВРЕМЕННАЯ", style=STEEL_BRIGHT), long_term)
-    return Panel(table, title="ПАМЯТЬ (день 11) — три слоя, отдельные файлы", border_style=STEEL)
+    return Panel(table, title="ПАМЯТЬ — три слоя, отдельные файлы", border_style=STEEL)
 
 
 def render_profile(profile):
@@ -184,7 +193,7 @@ def render_profile(profile):
         body = "\n".join(f"[{STEEL_PALE}]{k}[/{STEEL_PALE}] = {v}" for k, v in profile.data.items())
     else:
         body = "[dim]профиль пуст — /interview или /profile-set стиль = краткий[/dim]"
-    return Panel(body, title="ПРОФИЛЬ (день 12) — персонализация", border_style=STEEL)
+    return Panel(body, title="ПРОФИЛЬ — персонализация", border_style=STEEL)
 
 
 def render_invariants(invariants):
@@ -196,21 +205,36 @@ def render_invariants(invariants):
         body = "\n".join(rows)
     else:
         body = "[dim]инвариантов нет — /invariant-add Только Kotlin :: python[/dim]"
-    return Panel(body, title="ИНВАРИАНТЫ (день 14) — нерушимые, хранятся отдельно", border_style=STEEL)
+    return Panel(body, title="ИНВАРИАНТЫ — нерушимые, хранятся отдельно", border_style=STEEL)
+
+
+def stage_pipeline(current=None):
+    parts = []
+    for i, s in enumerate(STAGES):
+        if s == current:
+            parts.append(f"[{STEEL_PALE} bold]\\[{s}][/{STEEL_PALE} bold]")
+        else:
+            parts.append(f"[dim]{s}[/dim]")
+        if i < len(STAGES) - 1:
+            parts.append("[dim]→[/dim]")
+    return " ".join(parts)
 
 
 def render_state(state):
+    current = state.stage if state.active else None
+    head = f"[{STEEL_PALE}]стадии задачи:[/{STEEL_PALE}] {stage_pipeline(current)}"
     if not state.active:
-        body = "[dim]задача не начата — /task <название>[/dim]"
+        body = head + "\n[dim]задача не начата — /task <название> (стартует с planning)[/dim]"
     else:
         d = state.data
         allowed = ", ".join(state.allowed()) or "—"
-        body = (f"[{STEEL_PALE}]задача:[/{STEEL_PALE}] {d['task']}\n"
+        body = (head + "\n"
+                f"[{STEEL_PALE}]задача:[/{STEEL_PALE}] {d['task']}\n"
                 f"[{STEEL_PALE}]стадия:[/{STEEL_PALE}] {d['stage']}  [dim](шаг {d['step']})[/dim]\n"
                 f"[{STEEL_PALE}]ожидается:[/{STEEL_PALE}] {EXPECTED[d['stage']]}\n"
                 f"[{STEEL_PALE}]план:[/{STEEL_PALE}] {d['plan'] or '—'}\n"
                 f"[{STEEL_PALE}]легальные переходы:[/{STEEL_PALE}] {allowed}")
-    return Panel(body, title="СОСТОЯНИЕ ЗАДАЧИ (день 13) — task state machine", border_style=STEEL)
+    return Panel(body, title="СОСТОЯНИЕ ЗАДАЧИ — task state machine", border_style=STEEL)
 
 
 def show_status(assistant):
@@ -230,9 +254,11 @@ def show_help():
         ("Stateful-агент: память + профиль + состояние задачи + инварианты в одном.\n", ""),
         ("Просто пиши — обычный чат (учитывает все слои). Команды — со ", "dim"), ("/", "bold"),
         (".\n", "dim"),
-        ("Демо по дням: ", "dim"), ("/demo1", f"bold {STEEL_PALE}"), (" память · ", "dim"),
+        ("Демо показывают каждую фичу как ", "dim"), ("два запроса: с твоими данными и без", f"bold {STEEL_PALE}"),
+        (".\nСначала заполни данные (/interview, /remember-forever, /invariant-add, /task), потом жми демо.\n", "dim"),
+        ("/demo1", f"bold {STEEL_PALE}"), (" память · ", "dim"),
         ("/demo2", f"bold {STEEL_PALE}"), (" профиль · ", "dim"),
-        ("/demo3", f"bold {STEEL_PALE}"), (" state machine · ", "dim"),
+        ("/demo3", f"bold {STEEL_PALE}"), (" состояние · ", "dim"),
         ("/demo4", f"bold {STEEL_PALE}"), (" инварианты.", "dim"),
     )
     console.print(Panel(intro, border_style=STEEL, title="Как пользоваться"))
@@ -252,7 +278,7 @@ def parse_kv(rest, fallback_key):
 def run_interview(assistant):
     console.print(Panel("Стартовое интервью — соберём профиль пользователя по пунктам. "
                         "Пустой ответ = пропустить поле. Ctrl-C = выйти из интервью.",
-                        title="ИНТЕРВЬЮ ДЛЯ ПРОФИЛЯ (день 12)", border_style=STEEL))
+                        title="ИНТЕРВЬЮ ДЛЯ ПРОФИЛЯ", border_style=STEEL))
     collected = 0
     for key, question in INTERVIEW_QUESTIONS:
         hint = FIELDS.get(key, "")
@@ -303,7 +329,8 @@ def cmd_task(assistant, rest):
         console.print("[dim]Формат: /task <название задачи>[/dim]")
         return
     assistant.state.start(name)
-    console.print(Panel(f"Задача: [bold]{name}[/bold]\nСтадия: planning\n"
+    console.print(Panel(f"Задача: [bold]{name}[/bold]\n"
+                        f"Стадии: {stage_pipeline('planning')}\n"
                         f"[dim]{EXPECTED['planning']}[/dim]",
                         title="→ задача начата", border_style=STEEL))
 
@@ -371,10 +398,14 @@ def show_verdict(lint_hits, verdict, usage):
     console.print(Panel(f"{code_line}\n{critic_line}\n{footer}", title=title, border_style=border))
 
 
-def run_demo_memory(assistant):
-    using_sample = not assistant.memory.long_term
-    facts = dict(DEMO_MEM_FACTS) if using_sample else dict(assistant.memory.long_term)
-    source = "память пуста — взят образец" if using_sample else "взята твоя долговременная память"
+def run_demo_memory(assistant, question=""):
+    question = question.strip() or DEMO_MEM_QUESTION
+    real = dict(assistant.memory.long_term)
+    real.update(assistant.memory.working)
+    using_sample = not real
+    data = dict(DEMO_MEM_FACTS) if using_sample else real
+    source = ("память пуста — взят образец (заполни /remember-forever)" if using_sample
+              else "ТВОЯ память (долговременная + рабочая)")
 
     layers = Table(box=box.ROUNDED, expand=True, show_lines=True)
     layers.add_column("слой", style=f"bold {STEEL_BRIGHT}", no_wrap=True)
@@ -383,145 +414,126 @@ def run_demo_memory(assistant):
     layers.add_row("КРАТКОСРОЧНАЯ", "текущий диалог (последние реплики)", "short_term.json")
     layers.add_row("РАБОЧАЯ", "данные текущей задачи (KV)", "working.json")
     layers.add_row("ДОЛГОВРЕМЕННАЯ", "профиль, решения, знания", "long_term.json")
-    console.print(Panel(layers, title="ДЕНЬ 11 — ТРИ СЛОЯ ПАМЯТИ (хранятся отдельно)", border_style=STEEL))
+    console.print(Panel(layers, title="ТРИ СЛОЯ ПАМЯТИ (хранятся отдельно)", border_style=STEEL))
 
-    console.print(Panel(f"Один и тот же вопрос: [bold]{DEMO_MEM_QUESTION}[/bold]\n"
-                        f"Долговременная память ([dim]{source}[/dim]): {facts}\n"
-                        "[dim]Слева память НЕ подмешана, справа подмешана. Видно, как один слой "
-                        "памяти меняет ответ.[/dim]",
-                        title="влияние памяти на ответ", border_style=STEEL))
-    base = [{"role": "system", "content": assistant.system}]
-    question = {"role": "user", "content": DEMO_MEM_QUESTION}
-    mem_block = {"role": "system",
-                 "content": "Долговременная память (постоянные факты о проекте): "
-                            + json.dumps(facts, ensure_ascii=False)}
-    with console.status("[dim]гоняю один вопрос с памятью и без…[/dim]", spinner="dots"):
-        off_answer, _ = assistant.call_api(base + [question])
-        on_answer, _ = assistant.call_api(base + [mem_block, question])
-    console.print(Columns([Panel(off_answer, title="БЕЗ ПАМЯТИ", border_style=STEEL_DIM),
-                           Panel(on_answer, title="С ПАМЯТЬЮ (долговременная)", border_style=STEEL_BRIGHT)],
+    console.print(Panel(f"Один и тот же вопрос: [bold]{question}[/bold]\n"
+                        f"Данные памяти ([dim]{source}[/dim]): {data}\n"
+                        "[dim]Слева — БЕЗ памяти, справа — С твоей памятью. Видно её вклад в ответ.[/dim]",
+                        title="ВЛИЯНИЕ ПАМЯТИ НА ОТВЕТ", border_style=STEEL))
+    block = "Память (постоянные факты о проекте и данные задачи): " + json.dumps(data, ensure_ascii=False)
+    off, on = ab_run(assistant, question, block, "[dim]гоняю один вопрос с памятью и без…[/dim]")
+    console.print(Columns([Panel(off, title="БЕЗ ПАМЯТИ", border_style=STEEL_DIM),
+                           Panel(on, title="С ТВОЕЙ ПАМЯТЬЮ", border_style=STEEL_BRIGHT)],
                           equal=True, expand=True))
-    console.print("[dim]Без памяти модель отвечает обобщённо (часто типовой стек). С памятью — "
-                  "учитывает факты проекта. Демо живую память не меняет.[/dim]")
+    console.print("[dim]Без памяти — обобщённый ответ (часто типовой стек). С памятью — учитывает "
+                  "факты проекта. Демо живую память не меняет.[/dim]")
 
 
-def run_demo_profile(assistant):
-    console.print(Panel(f"Один и тот же вопрос: [bold]{DEMO_PROFILE_QUESTION}[/bold]\n"
-                        "[dim]Два разных профиля. В вопросе про стиль/формат не сказано — "
-                        "агент берёт это из профиля автоматически.[/dim]",
-                        title="ДЕНЬ 12 — ПЕРСОНАЛИЗАЦИЯ", border_style=STEEL))
+def run_demo_profile(assistant, question=""):
+    question = question.strip() or DEMO_PROFILE_QUESTION
+    using_sample = not assistant.profile.data
+    data = dict(DEMO_PROFILE_SAMPLE) if using_sample else dict(assistant.profile.data)
+    source = ("профиль пуст — взят образец (заполни /interview)" if using_sample
+              else "ТВОЙ профиль")
 
-    def profile_block(profile):
-        lines = "\n".join(f"- {k}: {v}" for k, v in profile.items())
-        return {"role": "system",
-                "content": "Профиль пользователя (персонализация) — подстраивай стиль, "
-                           "формат и глубину под него:\n" + lines}
-
-    pair = Columns([
-        Panel("\n".join(f"{k}: {v}" for k, v in DEMO_PROFILE_A.items()),
-              title="ПРОФИЛЬ A", border_style=STEEL_BRIGHT),
-        Panel("\n".join(f"{k}: {v}" for k, v in DEMO_PROFILE_B.items()),
-              title="ПРОФИЛЬ B", border_style=STEEL_DIM),
-    ], equal=True, expand=True)
-    console.print(Panel(pair, title="что подмешивается в запрос (профиль = system-блок)", border_style=STEEL))
-
-    base = [{"role": "system", "content": assistant.system}]
-    question = {"role": "user", "content": DEMO_PROFILE_QUESTION}
-    with console.status("[dim]гоняю один вопрос через два профиля…[/dim]", spinner="dots"):
-        a_answer, _ = assistant.call_api(base + [profile_block(DEMO_PROFILE_A), question])
-        b_answer, _ = assistant.call_api(base + [profile_block(DEMO_PROFILE_B), question])
-    console.print(Columns([
-        Panel(a_answer, title="ОТВЕТ ДЛЯ A · senior · краткий · код-first", border_style=STEEL_BRIGHT),
-        Panel(b_answer, title="ОТВЕТ ДЛЯ B · junior · дружеский · подробно", border_style=STEEL_DIM),
-    ], equal=True, expand=True))
-    console.print("[dim]Тот же вопрос — разный ответ. Слева сухой скелет с кодом, справа разжёвано "
-                  "списком. Агент учитывает стиль/формат/уровень из профиля автоматически.[/dim]")
+    console.print(Panel("\n".join(f"[{STEEL_PALE}]{k}[/{STEEL_PALE}] = {v}" for k, v in data.items()),
+                        title=f"ПРОФИЛЬ ({source})", border_style=STEEL))
+    console.print(Panel(f"Один и тот же вопрос: [bold]{question}[/bold]\n"
+                        "[dim]Про стиль/формат в вопросе не сказано. Слева — БЕЗ профиля, "
+                        "справа — С твоим профилем. Агент подстраивается автоматически.[/dim]",
+                        title="ВЛИЯНИЕ ПРОФИЛЯ НА ОТВЕТ", border_style=STEEL))
+    block = ("Профиль пользователя (персонализация) — подстраивай стиль, формат и глубину под него:\n"
+             + "\n".join(f"- {k}: {v}" for k, v in data.items()))
+    off, on = ab_run(assistant, question, block, "[dim]гоняю один вопрос с профилем и без…[/dim]")
+    console.print(Columns([Panel(off, title="БЕЗ ПРОФИЛЯ", border_style=STEEL_DIM),
+                           Panel(on, title="С ТВОИМ ПРОФИЛЕМ", border_style=STEEL_BRIGHT)],
+                          equal=True, expand=True))
+    console.print("[dim]Тот же вопрос — разный тон, формат и глубина. Это и есть персонализация.[/dim]")
 
 
-def run_demo_state(assistant):
-    console.print(Panel("Task state machine: planning → execution → validation → done.\n"
-                        "[dim]Переходы проверяет КОД (state.py), не промпт. Демо на временном "
-                        "состоянии — твою реальную задачу не трогает.[/dim]",
-                        title="ДЕНЬ 13 — СОСТОЯНИЕ ЗАДАЧИ", border_style=STEEL))
+def run_demo_state(assistant, question=""):
+    question = question.strip() or DEMO_STATE_QUESTION
+    active = assistant.state.active
+    block = assistant.state.as_prompt() if active else SAMPLE_STATE_BLOCK
+    stage = assistant.state.stage if active else "planning"
+    source = f"ТВОЯ задача, стадия {stage}" if active else "задачи нет — взят образец (стадия planning)"
 
     table = Table(box=box.ROUNDED, expand=True)
     table.add_column("стадия", style=f"bold {STEEL_BRIGHT}")
     table.add_column("ожидаемое действие")
     table.add_column("легальные переходы")
-    for stage in STAGES:
-        table.add_row(stage, EXPECTED[stage], ", ".join(TRANSITIONS[stage]) or "—")
-    console.print(Panel(table, title="карта автомата (этап · шаг · ожидаемое действие)", border_style=STEEL))
+    for s in STAGES:
+        marker = " ◀ сейчас" if active and s == stage else ""
+        table.add_row(s + marker, EXPECTED[s], ", ".join(TRANSITIONS[s]) or "—")
+    console.print(Panel(table, title="КАРТА АВТОМАТА (этап · шаг · ожидаемое действие)", border_style=STEEL))
+
+    console.print(Panel(f"Один и тот же запрос: [bold]{question}[/bold]\n"
+                        f"Состояние ([dim]{source}[/dim]).\n"
+                        "[dim]Слева — БЕЗ состояния, справа — С состоянием. "
+                        "Состояние не даёт агенту перепрыгнуть этап.[/dim]",
+                        title="ВЛИЯНИЕ СОСТОЯНИЯ НА ОТВЕТ", border_style=STEEL))
+    off, on = ab_run(assistant, question, block, "[dim]гоняю один запрос с состоянием и без…[/dim]")
+    console.print(Columns([
+        Panel(off, title="БЕЗ СОСТОЯНИЯ (прыгает сразу в код)", border_style=STEEL_DIM),
+        Panel(on, title=f"С СОСТОЯНИЕМ (держит стадию {stage})", border_style=STEEL_BRIGHT),
+    ], equal=True, expand=True))
 
     demo = TaskState(ephemeral=True)
-    log = []
-
-    def step(label, ok, message):
-        mark = "✓" if ok else "×"
-        color = STEEL_PALE if ok else WARN
-        log.append(f"[{color}]{mark}[/{color}] {label}: {message}")
-
-    demo.start("сервис авторизации")
-    log.append(f"[{STEEL_PALE}]✓[/{STEEL_PALE}] /task сервис авторизации → стадия planning")
-    ok, msg = demo.transition("done")
-    step("/go done (из planning, перепрыгнуть)", ok, msg)
-    ok, msg = demo.transition("execution")
-    step("/go execution (без плана)", ok, msg)
-    demo.set_plan("1) роуты 2) JWT 3) хранение сессий")
-    log.append(f"[{STEEL_PALE}]✓[/{STEEL_PALE}] /plan утверждён")
-    ok, msg = demo.transition("execution")
-    step("/go execution (план есть)", ok, msg)
-    ok, msg = demo.transition("validation")
-    step("/go validation", ok, msg)
-    ok, msg = demo.transition("done")
-    step("/go done", ok, msg)
-    console.print(Panel("\n".join(log), title="прогон переходов (× = код отклонил)", border_style=STEEL))
-
+    demo.start("проверка переходов")
+    ok_jump, msg_jump = demo.transition("done")
+    demo.set_plan("план")
+    ok_step, msg_step = demo.transition("execution")
+    console.print(Panel(
+        f"[{WARN}]×[/{WARN}] /go done из planning: {msg_jump}\n"
+        f"[{STEEL_PALE}]✓[/{STEEL_PALE}] /go execution (план есть): {msg_step}\n"
+        "[dim]Легальность переходов проверяет КОД (state.py), не промпт — нелегальный отклоняется.[/dim]",
+        title="ПЕРЕХОДЫ ПОД КОНТРОЛЕМ КОДА", border_style=STEEL))
     console.print(Panel(
         "[bold]Пауза:[/bold] состояние пишется в store/state.json на каждом шаге.\n"
         "[bold]Продолжение без повторных объяснений:[/bold] закрой агента на любой стадии — при "
         "следующем запуске он загрузит стадию, план и результаты и продолжит с того же места.\n"
-        "[dim]Проверь живьём: /task демо → /plan ... → /go execution → выйди → запусти agent11 снова "
-        "→ /status покажет ту же стадию и план.[/dim]",
-        title="пауза и продолжение", border_style=STEEL))
+        "[dim]Проверь живьём: /task демо → /plan ... → /go execution → выход → запусти снова → "
+        "/status покажет ту же стадию и план.[/dim]",
+        title="ПАУЗА И ПРОДОЛЖЕНИЕ", border_style=STEEL))
 
 
-def run_demo_invariants(assistant):
+def run_demo_invariants(assistant, question=""):
+    question = question.strip() or DEMO_INV_QUESTION
     using_sample = not assistant.invariants.items
     items = list(DEMO_INV_INVARIANTS) if using_sample else assistant.invariants.items
-    source = "инвариантов нет — взят образец" if using_sample else "взяты твои инварианты"
+    source = ("инвариантов нет — взят образец (заполни /invariant-add)" if using_sample
+              else "ТВОИ инварианты")
     rules = "\n".join(f"{i + 1}. {it['rule']}" for i, it in enumerate(items))
-    console.print(Panel(f"Инварианты ([dim]{source}[/dim], хранятся отдельным файлом):\n{rules}\n\n"
-                        f"Запрос, который их нарушает: [bold]{DEMO_INV_QUESTION}[/bold]",
-                        title="ДЕНЬ 14 — ИНВАРИАНТЫ И ОТКАЗ", border_style=STEEL))
 
-    inv_block = {"role": "system",
-                 "content": ("ИНВАРИАНТЫ — нерушимые ограничения. Если запрос им противоречит — "
-                             "откажись и объясни, какой инвариант нарушается:\n" + rules)}
-    base = [{"role": "system", "content": assistant.system}]
-    question = {"role": "user", "content": DEMO_INV_QUESTION}
-    with console.status("[dim]спрашиваю агента с инвариантами в промпте…[/dim]", spinner="dots"):
-        refusal, _ = assistant.call_api(base + [inv_block, question])
-    console.print(Panel(refusal, title="1) АГЕНТ С ИНВАРИАНТАМИ → отказ + объяснение конфликта",
-                        border_style=STEEL_BRIGHT))
+    console.print(Panel(f"Инварианты ([dim]{source}[/dim], хранятся отдельным файлом):\n{rules}\n\n"
+                        f"Один и тот же запрос: [bold]{question}[/bold]\n"
+                        "[dim]Слева — БЕЗ инвариантов, справа — С твоими инвариантами.[/dim]",
+                        title="ВЛИЯНИЕ ИНВАРИАНТОВ НА ОТВЕТ", border_style=STEEL))
+    block = ("ИНВАРИАНТЫ — нерушимые ограничения. Если запрос им противоречит — откажись и объясни, "
+             "какой инвариант нарушается:\n" + rules)
+    off, on = ab_run(assistant, question, block, "[dim]гоняю один запрос с инвариантами и без…[/dim]")
+    console.print(Columns([
+        Panel(off, title="БЕЗ ИНВАРИАНТОВ (выполняет запрос)", border_style=STEEL_DIM),
+        Panel(on, title="С ТВОИМИ ИНВАРИАНТАМИ (отказ + объяснение)", border_style=STEEL_BRIGHT),
+    ], equal=True, expand=True))
 
     temp = Invariants.__new__(Invariants)
     temp.items = items
-    hits = temp.lint(DEMO_INV_BAD_ANSWER)
+    hits = temp.lint(off)
     code_body = ("нарушений не найдено" if not hits else
                  "\n".join(f"[{WARN}]×[/{WARN}] «{h['term']}» → {h['rule']}" for h in hits))
-    console.print(Panel(f"[dim]Проверяемый «плохой» ответ:[/dim] {DEMO_INV_BAD_ANSWER}\n\n{code_body}",
-                        title="2) КОД-ЛИНТЕР (детерминированный, без LLM)", border_style=STEEL))
-
-    with console.status("[dim]критик (gpt-4o-mini) проверяет тот же ответ…[/dim]", spinner="dots"):
-        verdict, usage = critic_check(assistant.api_key, items, DEMO_INV_BAD_ANSWER)
+    console.print(Panel(code_body, title="КОД-ЛИНТЕР по ответу БЕЗ инвариантов (детерминированно)",
+                        border_style=STEEL))
+    with console.status("[dim]критик (gpt-4o-mini) проверяет ответ без инвариантов…[/dim]", spinner="dots"):
+        verdict, usage = critic_check(assistant.api_key, items, off)
     which = "\n".join(f"  · {w}" for w in verdict.get("which", []))
     verdict_body = (f"нарушено: [bold]{verdict.get('violated')}[/bold]\n"
                     f"почему: {verdict.get('why', '')}\n{which}\n"
                     f"[dim]вход {usage['prompt_tokens']} ток. · ответ {usage['completion_tokens']}[/dim]")
-    console.print(Panel(verdict_body, title="3) LLM-КРИТИК (семантический)", border_style=STEEL))
-    console.print("[dim]Конфликт запрос↔инвариант: (1) промпт заставляет агента отказаться заранее "
-                  "и объяснить; (2) код-линтер и (3) критик ловят нарушение, если оно просочилось в ответ. "
-                  "Так инварианты живут и в промпте, и в коде.[/dim]")
+    console.print(Panel(verdict_body, title="LLM-КРИТИК по тому же ответу (семантический)", border_style=STEEL))
+    console.print("[dim]Конфликт запрос↔инвариант: слева агент без правил выполняет (и линтер с критиком "
+                  "ловят нарушение), справа агент с инвариантами отказывается и объясняет. Инварианты "
+                  "работают и в промпте, и в коде.[/dim]")
 
 
 def turn_footer(assistant, usage, n_messages, hits):
@@ -570,13 +582,13 @@ def handle_command(assistant, name, rest):
     elif name == "go":
         cmd_go(assistant, rest)
     elif name == "demo1":
-        run_demo_memory(assistant)
+        run_demo_memory(assistant, rest)
     elif name == "demo2":
-        run_demo_profile(assistant)
+        run_demo_profile(assistant, rest)
     elif name == "demo3":
-        run_demo_state(assistant)
+        run_demo_state(assistant, rest)
     elif name == "demo4":
-        run_demo_invariants(assistant)
+        run_demo_invariants(assistant, rest)
     elif name == "reset":
         assistant.memory.reset()
         assistant.profile.clear()
@@ -596,12 +608,14 @@ def banner(assistant):
               f"задача: {s.state.data['task'] or '—'} ({s.state.stage})")
     body = Text.assemble(
         ("Stateful-агент", "bold"),
-        ("  ·  дни 11–14  ·  модель ", ""), (s.model, f"bold {STEEL_BRIGHT}"),
+        ("  ·  память · профиль · состояние · инварианты  ·  модель ", ""),
+        (s.model, f"bold {STEEL_BRIGHT}"),
         ("\n", ""), (loaded, "dim"),
-        ("\n\nПамять · профиль · состояние задачи · инварианты — в одном агенте.\n", "dim"),
-        ("Пиши сообщение — обычный чат. Набери ", "dim"), ("/", "bold"),
-        (" для команд, ", "dim"), ("/help", f"bold {STEEL_BRIGHT}"), (" — подробно. ", "dim"),
-        ("Демо: ", "dim"), ("/demo1 /demo2 /demo3 /demo4", f"bold {STEEL_PALE}"),
+        ("\nстадии задачи: planning → execution → validation → done", "dim"),
+        ("\n\nПиши сообщение — обычный чат (учитывает все слои). Набери ", "dim"), ("/", "bold"),
+        (" для команд, ", "dim"), ("/help", f"bold {STEEL_BRIGHT}"), (" — подробно.\n", "dim"),
+        ("Демо = ", "dim"), ("с твоими данными и без них", f"bold {STEEL_PALE}"),
+        (": ", "dim"), ("/demo1 /demo2 /demo3 /demo4", f"bold {STEEL_PALE}"),
         (". Пустая строка — выход.", "dim"),
     )
     console.print(Panel(body, border_style=STEEL, box=box.DOUBLE))
