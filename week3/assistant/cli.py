@@ -21,7 +21,7 @@ from assistant.profile import Profile, FIELDS
 from assistant.state import TaskStore, STAGES, TRANSITIONS, EXPECTED
 from assistant.invariants import Invariants
 from assistant.validator import critic_check
-from assistant.swarm import run_council, COUNCIL_ROLES, MEMBER_MODEL
+from assistant.swarm import run_swarm, STAGE_ROLES, MEMBER_MODEL
 from assistant.prompt_builder import build_messages
 
 API_URL = "https://api.proxyapi.ru/openai/v1/chat/completions"
@@ -59,7 +59,7 @@ COMMANDS = {
 }
 
 WORKSPACE_COMMANDS = {
-    "/council": "созвать рой из 5 агентов — каждый со своей стороны, оркестратор сведёт в план (стадия planning)",
+    "/council": "перезапустить рой текущей стадии (рой и так отрабатывает авто при входе на стадию)",
     "/plan": "утвердить план задачи. Пример: /plan 1) роуты 2) JWT 3) хранение",
     "/next": "перейти на следующую стадию (код проверит легальность)",
     "/back": "вернуться на предыдущую стадию",
@@ -293,8 +293,10 @@ def show_help():
         ("/demo3", f"bold {NAVY_PALE}"), (" состояние · ", "dim"),
         ("/demo4", f"bold {NAVY_PALE}"), (" инварианты · ", "dim"),
         ("/demo5", f"bold {NAVY_PALE}"), (" контролируемые переходы.\n", "dim"),
-        ("Рой агентов: ", "dim"), ("/council", f"bold {NAVY_PALE}"),
-        (" внутри задачи на стадии planning — 5 агентов + оркестратор вырабатывают план.", "dim"),
+        ("Рой агентов: ", "dim"), ("на каждой стадии задачи", f"bold {NAVY_PALE}"),
+        (" авто отрабатывает рой (5 ролей + оркестратор). Стадию двигаешь ", "dim"),
+        ("только ты", f"bold {NAVY_PALE}"), (" командой ", "dim"), ("/next", f"bold {NAVY_PALE}"),
+        (" — агент перейти не может.", "dim"),
     )
     console.print(Panel(intro, border_style=NAVY, title="Как пользоваться"))
     console.print(Panel(table, border_style=NAVY, title="Команды"))
@@ -404,9 +406,27 @@ def workspace_next(assistant, name):
         console.print(Panel(message, title="× переход отклонён кодом", border_style=WARN))
         return
     console.print(Panel(f"{message}\n[dim]{EXPECTED[target]}[/dim]",
-                        title="→ стадия изменена", border_style=NAVY))
-    if target == "validation":
-        run_validation_critic(assistant)
+                        title="→ стадия изменена (разрешил ты командой /next)", border_style=NAVY))
+    if target in STAGE_ROLES:
+        run_stage_swarm(assistant, name, target)
+    elif target == "done":
+        show_done_report(assistant, name)
+
+
+def show_done_report(assistant, name):
+    task = assistant.state.tasks[name]
+    plan = task["plan"] or "—"
+    if task["results"]:
+        results = "\n\n".join(f"[{NAVY_PALE}]шаг {i + 1}[/{NAVY_PALE}]\n{r}"
+                              for i, r in enumerate(task["results"]))
+    else:
+        results = "[dim]результатов стадий нет[/dim]"
+    console.print(Panel(f"[{NAVY_PALE}]задача:[/{NAVY_PALE}] {name}   "
+                        f"[{NAVY_PALE}]шагов:[/{NAVY_PALE}] {task['step']}\n"
+                        f"[{NAVY_PALE}]утверждённый план:[/{NAVY_PALE}]\n{plan}\n\n"
+                        f"[{NAVY_PALE}]итоги стадий (рой):[/{NAVY_PALE}]\n{results}",
+                        title=f"DONE · финальная сводка задачи «{name}»", border_style=NAVY_BRIGHT,
+                        box=box.DOUBLE))
 
 
 def workspace_back(assistant, name):
@@ -420,7 +440,9 @@ def workspace_back(assistant, name):
         console.print(Panel(message, title="× переход отклонён кодом", border_style=WARN))
         return
     console.print(Panel(f"{message}\n[dim]{EXPECTED[target]}[/dim]",
-                        title="→ стадия изменена", border_style=NAVY))
+                        title="→ стадия изменена (разрешил ты командой /back)", border_style=NAVY))
+    if target in STAGE_ROLES:
+        run_stage_swarm(assistant, name, target)
 
 
 def workspace_help():
@@ -433,31 +455,43 @@ def workspace_help():
                         title="рабочее пространство задачи — команды (просто текст = вопрос агенту)"))
 
 
-def run_council_command(assistant, name):
+STAGE_RESULT_HINT = {
+    "planning": "Сводный план роя записан как план задачи. Дальше — твоё решение: /next в execution "
+                "(код пустит, т.к. план утверждён). Агент сам стадию не сменит.",
+    "execution": "Итог реализации роя записан в результаты задачи. Готов проверять — твоё решение: /next в validation.",
+    "validation": "Вердикт роя записан в результаты. Если всё чисто — твоё решение: /next в done.",
+}
+
+
+def run_stage_swarm(assistant, name, stage):
     store = assistant.state
-    task = store.tasks[name]
-    if task["stage"] != "planning":
-        console.print(Panel(f"Рой агентов вырабатывает план — он работает на стадии planning. "
-                            f"Сейчас стадия: {task['stage']}. Вернись в planning (/back), чтобы созвать совет.",
-                            title="× совет недоступен на этой стадии", border_style=WARN))
+    if stage not in STAGE_ROLES:
         return
+    task = store.tasks[name]
+    roles = STAGE_ROLES[stage]
+    roles_n = len(roles)
+    prev_result = task["results"][-1] if task["results"] else None
     profile_text = "\n".join(f"- {k}: {v}" for k, v in assistant.profile.data.items())
-    roles_n = len(COUNCIL_ROLES)
     console.print(Panel(
-        f"Задача: [bold]{name}[/bold]\n"
-        f"Созываю [bold]{roles_n}[/bold] агентов ([dim]{MEMBER_MODEL}[/dim]) — каждый смотрит со своей стороны: "
-        + ", ".join(r for r, _ in COUNCIL_ROLES) + ".\n"
-        f"[dim]Оркестратор ({assistant.model}) знает твой запрос, профиль и инварианты — сведёт мнения в план "
-        "и возразит, если что-то их нарушает.[/dim]",
-        title="РОЙ АГЕНТОВ — совет на стадии planning", border_style=NAVY))
-    with console.status(f"[dim]{roles_n} агентов думают, затем оркестратор сводит…[/dim]", spinner="dots"):
-        opinions, synthesis, member_usage, orch_usage = run_council(
-            assistant.api_key, name, assistant.invariants.items, profile_text)
+        f"Задача: [bold]{name}[/bold]   стадия: [bold]{stage}[/bold]\n"
+        f"Рой из [bold]{roles_n}[/bold] агентов ([dim]{MEMBER_MODEL}[/dim]) — каждый со своей стороны: "
+        + ", ".join(r for r, _ in roles) + ".\n"
+        f"[dim]Оркестратор ({assistant.model}) знает запрос, профиль, инварианты, план и прошлые стадии — "
+        "сведёт мнения и возразит при конфликте. Стадию двигаешь только ты командой /next.[/dim]",
+        title=f"РОЙ АГЕНТОВ · стадия {stage}", border_style=NAVY))
+    with console.status(f"[dim]{roles_n} агентов работают над стадией {stage}, затем оркестратор сводит…[/dim]",
+                        spinner="dots"):
+        opinions, synthesis, member_usage, orch_usage = run_swarm(
+            assistant.api_key, stage, name, task["plan"], prev_result,
+            assistant.invariants.items, profile_text)
     console.print(Columns([Panel(o["text"], title=o["role"], border_style=NAVY_DIM) for o in opinions],
                           equal=True, expand=True))
-    console.print(Panel(synthesis, title="ОРКЕСТРАТОР — сводное решение (рой → план)",
+    console.print(Panel(synthesis, title=f"ОРКЕСТРАТОР · итог стадии {stage}",
                         border_style=NAVY_BRIGHT, box=box.DOUBLE))
-    store.set_plan(name, synthesis)
+    if stage == "planning":
+        store.set_plan(name, synthesis)
+    else:
+        store.add_result(name, f"[{stage}] {synthesis}")
     orch_cost = assistant.cost_rub(orch_usage)
     cost_str = f" · оркестратор {orch_cost:.4f} ₽" if orch_cost is not None else ""
     console.print(Text(
@@ -465,14 +499,13 @@ def run_council_command(assistant, name):
         f"ответ {member_usage['completion_tokens']}   |   "
         f"оркестратор ({assistant.model}): вход {orch_usage['prompt_tokens']} ток. · "
         f"ответ {orch_usage['completion_tokens']}{cost_str}", style="dim"))
-    console.print(Panel("Сводный план роя записан как план задачи. Теперь код разрешит /next в execution.",
-                        title="→ план утверждён роем", border_style=NAVY))
+    console.print(Panel(STAGE_RESULT_HINT[stage], title=f"→ стадия {stage}: рой отработал", border_style=NAVY))
 
 
 def handle_workspace_cmd(assistant, name, cmd, rest):
     store = assistant.state
     if cmd == "council":
-        run_council_command(assistant, name)
+        run_stage_swarm(assistant, name, store.tasks[name]["stage"])
     elif cmd == "plan":
         if not rest:
             console.print("[dim]Формат: /plan <текст плана>[/dim]")
@@ -504,10 +537,12 @@ def handle_workspace_cmd(assistant, name, cmd, rest):
     return False
 
 
-def run_workspace(assistant, name):
+def run_workspace(assistant, name, fresh=False):
     store = assistant.state
     store.enter(name)
     show_workspace_header(store, name)
+    if fresh:
+        run_stage_swarm(assistant, name, "planning")
     completer = SlashCompleter(WORKSPACE_COMMANDS)
     bindings = KeyBindings()
 
@@ -552,44 +587,14 @@ def cmd_task(assistant, rest):
         console.print(render_tasks(store))
         console.print("[dim]Открыть/создать: /task <имя>[/dim]")
         return
-    if not store.exists(name):
+    fresh = not store.exists(name)
+    if fresh:
         store.create(name)
         console.print(Panel(f"Создана задача: [bold]{name}[/bold]\n"
-                            f"Стадии: {stage_pipeline('planning')}",
+                            f"Стадии: {stage_pipeline('planning')}\n"
+                            "[dim]Сейчас на стадии planning отработает рой агентов. Дальше двигаешь ты — /next.[/dim]",
                             title="→ новая задача", border_style=NAVY))
-    run_workspace(assistant, name)
-
-
-def run_validation_critic(assistant):
-    answer = assistant.last_assistant()
-    if not answer:
-        console.print("[dim]Нечего валидировать — в диалоге ещё нет ответа ассистента.[/dim]")
-        return
-    if not assistant.invariants.items:
-        console.print("[dim]Инвариантов нет — критику нечего проверять.[/dim]")
-        return
-    hits = assistant.invariants.lint(answer)
-    with console.status("[dim]критик (gpt-4o-mini) проверяет последний ответ на инварианты…[/dim]",
-                        spinner="dots"):
-        verdict, usage = critic_check(assistant.api_key, assistant.invariants.items, answer)
-    show_verdict(hits, verdict, usage)
-
-
-def show_verdict(lint_hits, verdict, usage):
-    code_line = ("[bold]код-линтер:[/bold] нарушений нет" if not lint_hits else
-                 "[bold]код-линтер:[/bold] " + "; ".join(
-                     f"«{h['term']}» → {h['rule']}" for h in lint_hits))
-    if verdict.get("violated"):
-        critic_line = ("[bold]критик:[/bold] НАРУШЕНО — " + verdict.get("why", "")
-                       + "\n" + "\n".join(f"  · {w}" for w in verdict.get("which", [])))
-        border = WARN
-        title = "ВАЛИДАЦИЯ — ответ нарушает инварианты"
-    else:
-        critic_line = "[bold]критик:[/bold] нарушений нет"
-        border = NAVY
-        title = "ВАЛИДАЦИЯ — ответ соответствует инвариантам"
-    footer = f"[dim]критик: вход {usage['prompt_tokens']} ток. · ответ {usage['completion_tokens']}[/dim]"
-    console.print(Panel(f"{code_line}\n{critic_line}\n{footer}", title=title, border_style=border))
+    run_workspace(assistant, name, fresh)
 
 
 def run_demo_memory(assistant, question=""):
@@ -871,8 +876,8 @@ def banner(assistant):
         ("Набери ", "dim"), ("/", "bold"), (" для команд, ", "dim"),
         ("/help", f"bold {NAVY_BRIGHT}"), (" — подробно.\n", "dim"),
         ("Демо: ", "dim"), ("/demo1 /demo2 /demo3 /demo4 /demo5", f"bold {NAVY_PALE}"),
-        ("  ·  рой агентов ", "dim"), ("/council", f"bold {NAVY_PALE}"),
-        (" в задаче (planning).\n", "dim"),
+        (".  На каждой стадии задачи рой агентов отрабатывает авто; стадию двигаешь только ты — ", "dim"),
+        ("/next", f"bold {NAVY_PALE}"), (".\n", "dim"),
         ("Список задач — в нижней панели. Пустая строка — выход.", "dim"),
     )
     console.print(Panel(body, border_style=NAVY, box=box.DOUBLE))
