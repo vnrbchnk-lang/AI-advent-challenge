@@ -59,11 +59,11 @@ COMMANDS = {
 }
 
 WORKSPACE_COMMANDS = {
-    "/council": "перезапустить рой текущей стадии (рой и так отрабатывает авто при входе на стадию)",
-    "/plan": "утвердить план задачи. Пример: /plan 1) роуты 2) JWT 3) хранение",
-    "/next": "перейти на следующую стадию (код проверит легальность)",
-    "/back": "вернуться на предыдущую стадию",
+    "/next": "ОСНОВНОЕ: разрешить переход на следующую стадию (рой новой стадии отработает сам)",
+    "/back": "вернуть задачу на предыдущую стадию (рой отработает заново)",
+    "/council": "перезапустить рой текущей стадии (он и так отрабатывает авто при входе)",
     "/status": "показать карточку этой задачи",
+    "/plan": "вручную переписать план (обычно его делает рой planning). Пример: /plan 1) роуты 2) JWT",
     "/pause": "приостановить задачу и выйти в общий чат",
     "/delete": "удалить эту задачу",
     "/help": "справка по рабочему пространству",
@@ -389,7 +389,6 @@ def ask_in_task(assistant, name, text):
     with console.status("[dim]агент работает над задачей…[/dim]", spinner="dots"):
         answer, usage = assistant.call_api(messages)
     assistant.memory.add_dialog("assistant", answer)
-    assistant.state.add_result(name, answer)
     hits = assistant.invariants.lint(answer)
     console.print(Panel(answer, title=f"АССИСТЕНТ · {name}", border_style=NAVY, box=box.ROUNDED))
     turn_footer(assistant, usage, len(messages), hits)
