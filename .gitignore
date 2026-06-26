@@ -17,6 +17,7 @@ week2/*/test_history.json
 week2/*/compare*.json
 week2/*/_t.json
 week3/assistant/store/*.json
+week4/agent/store/
 
 # --- Python ---
 __pycache__/
