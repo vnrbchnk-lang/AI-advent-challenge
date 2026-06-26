@@ -10,6 +10,7 @@ secrets.*
 01_ai_prompting_summary.md
 02_agent_tools_summary.md
 03-memory-state-summary.md
+04-mcp-summary.md
 
 # --- Данные диалогов агентов (живая история, не код) ---
 week2/*/history.json
