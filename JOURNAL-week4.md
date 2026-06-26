@@ -86,3 +86,36 @@
 - ВНИМАНИЕ: перед видео — пользователю проверить поддержку OpenAI `tools` в ProxyAPI одиночным
   smoke-вызовом; детерминированный `/pipeline` от этого не зависит.
 - Ссылка на сдачу: —
+
+### День 20 — оркестрация нескольких MCP-серверов
+- Статус: готово; мульти-серверная связка проверена без LLM (connect+list+routing), живой
+  LLM-прогон `/ask` — за пользователем (правило 11)
+- Файлы: `week4/agent/server/wiki_app.py`, `server/scheduler_app.py`, `server/pipeline_app.py`,
+  `agent/mcp_agent.py` (переписан), `agent/cli.py`, `week4/pyproject.toml`
+- Задание: зарегистрировать несколько MCP-серверов; агент выбирает нужный инструмент, корректно
+  маршрутизирует запросы, выполняет длинный флоу. Проверить: сценарий с инструментами с разных
+  серверов + корректность выбора и порядка вызовов. Результат: длинный флоу с несколькими серверами.
+- Что сделано:
+  - Монолит `server/app.py` разбит на **3 свои MCP-сервера** (stdio), модули реализации tools
+    (`wiki.py`/`scheduler.py`/`pipeline.py`) не тронуты: `wiki_app` (wiki_search/wiki_fetch),
+    `scheduler_app` (remind_add/reminders_list/summary_run + демон), `pipeline_app`
+    (summarize/save_to_file). Старый `app.py` удалён.
+  - `mcp_agent.py` переписан в **мульти-серверный реестр**: `SERVERS` (3 stdio + публичный DeepWiki
+    по HTTP). Одна корутина в фон-loop держит ВСЕ сессии открытыми через `AsyncExitStack`; каждый
+    сервер коннектится в try/except + `wait_for` (упавший помечается, остальные работают). Tools
+    неймспейсятся `server__tool`. Роутер `call_tool(server, name, args)` шлёт в нужную сессию.
+  - Два детерминированных длинных кросс-серверных флоу: `run_flow` (wiki→pipeline→scheduler, 5 шагов,
+    3 сервера) и `run_research` (deepwiki→pipeline→scheduler, 5 шагов — DeepWiki теперь реально
+    **вызывается**, апгрейд дня 16). Данные явно передаются шаг→шаг, печатается с какого сервера каждый.
+  - `ask()` (LLM-loop) мульти-серверный: модель видит tools всех серверов, имя `server__tool`
+    парсится и роутится; транскрипт показывает выбранный сервер+порядок.
+  - `cli.py`: `/servers` (реестр+статус), `/tools` (по серверам), `/flow`, `/research`,
+    `/ask`, `/demo20` (реестр + план кросс-серверных вызовов). `/demo16` сохранён.
+  - Проверено без ProxyAPI: 4/4 сервера подключились (wiki 2 / pipeline 2 / scheduler 3 / deepwiki 3
+    = 10 tools), namespacing+роутинг работают, `wiki_search` и `scheduler:reminders_list` отдали
+    результат; параметры DeepWiki (`repoName`, `question`) сверены по inputSchema.
+- Сверх ТЗ: живучесть (один упавший сервер не валит остальных), `/demo20` визуализация плана,
+  `run_research` поднимает DeepWiki с листинга (д.16) до реального вызова.
+- ВНИМАНИЕ: `/flow`/`/research`/`/ask` на шаге summarize/LLM требуют `PROXYAPI_KEY` + поддержку
+  `tools` — живой прогон пользователя для видео.
+- Ссылка на сдачу: —

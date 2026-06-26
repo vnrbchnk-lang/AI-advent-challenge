@@ -12,4 +12,4 @@ dependencies = ["mcp", "requests", "rich", "prompt_toolkit"]
 agent16 = "agent.cli:main"
 
 [tool.setuptools]
-packages = ["agent"]
+packages = ["agent", "agent.server"]
