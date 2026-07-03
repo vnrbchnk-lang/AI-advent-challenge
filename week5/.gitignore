@@ -1,0 +1,4 @@
+rag/docs/
+rag/store/
+*.egg-info/
+__pycache__/

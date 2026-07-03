@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "advent-week5-rag"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["requests", "rich", "prompt_toolkit", "numpy", "pypdf"]
+
+[project.scripts]
+agent21 = "rag.cli:main"
+
+[tool.setuptools]
+packages = ["rag"]
