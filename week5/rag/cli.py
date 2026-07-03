@@ -448,7 +448,35 @@ def cmd_chat():
             _error("Ошибка чата", error)
 
 
+def _day_header(day, title, points):
+    lines = Text()
+    for point in points:
+        lines.append("- ", style=NAVY_DIM)
+        lines.append(point + "\n", style=NAVY_PALE)
+    console.print(Panel(lines, title=Text(f"День {day} — {title}", style=f"bold {NAVY_BRIGHT}"),
+                        border_style=NAVY_BRIGHT, box=box.DOUBLE))
+
+
+def _show_sample_chunk():
+    if active_strategy not in indexes:
+        return
+    sample = next((c for c in indexes[active_strategy].chunks if "травм" in c["section"].lower()),
+                  indexes[active_strategy].chunks[0])
+    meta = {k: sample[k] for k in ("chunk_id", "strategy", "source", "title", "section", "n_chars")}
+    body = Text(json.dumps(meta, ensure_ascii=False, indent=1) + "\n\n", style=NAVY_PALE)
+    body.append(sample["text"][:260] + "…", style=NAVY_DIM)
+    console.print(Panel(body, title=Text("Чанк с метаданными (как хранится в индексе)",
+                                         style=f"bold {NAVY_BRIGHT}"),
+                        border_style=NAVY, box=box.ROUNDED))
+
+
 def demo21():
+    _day_header(21, "Индексация документов", [
+        "корпус: база хакатона C:\\Alaba — markdown + txt + PDF (pypdf)",
+        "эмбеддинги локальные: Ollama bge-m3, данные заказчика не покидают машину",
+        "две стратегии чанкинга: fixed (1600+overlap 200) vs structural (по заголовкам)",
+        "индекс: JSON + numpy, метаданные у каждого чанка",
+    ])
     cmd_fetch()
     documents = corpus.load_documents()
     stats_by_strategy = {s: chunking.stats(chunking.chunk_corpus(documents, s))
@@ -457,24 +485,42 @@ def demo21():
                         title=Text("Две стратегии чанкинга на одном корпусе", style=f"bold {NAVY_BRIGHT}"),
                         border_style=NAVY, box=box.ROUNDED))
     _load_indexes()
+    _show_sample_chunk()
     if indexes:
         console.print(Text("пример поиска: /search как работает травма карты", style=NAVY_DIM))
         cmd_search("как работает травма карты")
 
 
 def demo22():
+    _day_header(22, "Первый RAG-запрос", [
+        "вопрос -> векторный поиск -> чанки в промпт -> gpt-4.1",
+        "сравнение: тот же вопрос без RAG (общие знания) и с RAG (факты проекта)",
+        "10 контрольных вопросов с автопроверкой источников — /eval",
+    ])
     question = "Какой размер колоды и лимиты по редкости карт?"
     console.print(Text(f"вопрос: {question}", style=f"bold {NAVY_BRIGHT}"))
     cmd_raw(question)
     cmd_ask(question)
+    console.print(Text("полный прогон 10 вопросов: /eval", style=NAVY_DIM))
 
 
 def demo23():
+    _day_header(23, "Реранкинг и фильтрация", [
+        "конвейер: rewrite -> поиск topN=20 -> порог косинуса -> LLM-реранк 0-10 -> topK=5",
+        "векторная близость не равна релевантности — реранк отсеивает похожее-но-не-то",
+        "все ручки крутятся через /mode; ниже — судьба каждого чанка",
+    ])
     cmd_mode("")
     cmd_compare23("какие режимы игры будут в MVP")
 
 
 def demo24():
+    _day_header(24, "Цитаты, источники, анти-галлюцинации", [
+        "каждый ответ: Ответ + Источники (source/section/chunk_id) + Цитаты",
+        "цитаты проверяет КОД — подстрока чанка, пометка «дословно»",
+        "слабый контекст -> «не знаю» ДО вызова LLM (детерминированный гейт)",
+        "чек 10 вопросов — /check",
+    ])
     cmd_ask("Как работает механика травмы и смерти карты?")
     question = "Какая столица Австралии?"
     console.print(Text(f"вопрос мимо базы: {question}", style=f"bold {NAVY_BRIGHT}"))
@@ -485,11 +531,12 @@ def demo24():
 
 
 def demo25():
-    console.print(Panel(Text("Сценарий: спроси про правила игры, затем уточняй («а что с редкостью?», "
-                             "«а лечение?»). Ассистент держит цель в памяти задачи и всегда даёт "
-                             "источники. Память сохраняется между запусками.", style=NAVY_PALE),
-                        title=Text("Демо дня 25", style=f"bold {NAVY_BRIGHT}"),
-                        border_style=NAVY, box=box.ROUNDED))
+    _day_header(25, "Мини-чат с RAG + память задачи", [
+        "история диалога (окно 8) + rewrite коротких вопросов по контексту («а лечение?»)",
+        "память задачи {goal, clarified, constraints, glossary} — экстрактор gpt-4o-mini",
+        "источники в каждом ответе; /state — память; переживает перезапуск",
+        "сценарий: спроси про правила, уточняй, зафиксируй ограничение, проверь /state",
+    ])
     cmd_chat()
 
 

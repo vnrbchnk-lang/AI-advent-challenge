@@ -6,7 +6,7 @@ from rag.llm import chat, CHEAP_MODEL
 DEFAULTS = {
     "rewrite": False,
     "rerank": False,
-    "threshold": 0.5,
+    "threshold": 0.42,
     "top_n": 20,
     "top_k": 5,
     "rerank_min": 4,
