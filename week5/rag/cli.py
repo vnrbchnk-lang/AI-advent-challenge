@@ -13,7 +13,7 @@ from rich import box
 
 from rag import corpus, chunking, embedder, evalset
 from rag.index import VectorIndex
-from rag.rag import answer_no_rag, answer_rag, REFUSAL
+from rag.rag import answer_no_rag, answer_rag, generate_answer, REFUSAL
 from rag.retrieval import DEFAULTS, retrieve
 from rag.taskmemory import ChatMemory
 
@@ -332,9 +332,11 @@ def cmd_compare23(question):
     baseline = {**settings, "rewrite": False, "rerank": False, "threshold": 0.0}
     tuned = {**settings, "rewrite": True, "rerank": True}
     try:
-        with console.status(Text("Гоняю оба режима поиска", style=NAVY_PALE)):
+        with console.status(Text("Гоняю оба режима поиска и оба ответа", style=NAVY_PALE)):
             before = retrieve(index, question, baseline)
             after = retrieve(index, question, tuned)
+            answer_before = generate_answer(question, before)
+            answer_after = generate_answer(question, after)
     except Exception as error:
         _error("Ошибка сравнения (нужен PROXYAPI_KEY для rewrite/rerank)", error)
         return
@@ -352,7 +354,8 @@ def cmd_compare23(question):
     dropped_rerank_ids = {c["chunk_id"] for _, c in after["dropped_rerank"]}
     position_by_id = {c["chunk_id"]: p for p, (_, c) in
                       enumerate([(s, c) for s, c in after["raw"] if s >= tuned["threshold"]], 1)}
-    for score, chunk in before["raw"][:12]:
+    shown = before["raw"][:12]
+    for score, chunk in shown:
         cid = chunk["chunk_id"]
         llm = after["llm_scores"].get(position_by_id.get(cid, -1), "")
         if cid in kept_ids:
@@ -364,11 +367,15 @@ def cmd_compare23(question):
         else:
             fate = Text("за пределами topK", style=NAVY_DIM)
         table.add_row(f"{score:.3f}", str(llm), f"{chunk['title'][:40]} · {chunk['section'][:40]}", fate)
-    console.print(Panel(table, title=Text("До фильтрации (сырой топ-12) и что с ним стало",
+    console.print(Panel(table, title=Text(f"До фильтрации (показаны первые {len(shown)} из {len(before['raw'])}) и что с ними стало",
                                           style=f"bold {NAVY_BRIGHT}"),
                         subtitle=Text(f"порог {tuned['threshold']} + реранк gpt-4o-mini >= {tuned['rerank_min']}"
                                       f" -> в промпт ушло {len(after['final'])}", style=NAVY_PALE),
                         border_style=NAVY, box=box.ROUNDED))
+    _render_answer(answer_before,
+                   title=f"Ответ БЕЗ пайплайна (сырой топ-{len(before['final'])}, без порога и реранка)")
+    _render_answer(answer_after,
+                   title=f"Ответ С пайплайном (порог {tuned['threshold']} + реранк -> {len(after['final'])} чанков)")
 
 
 def cmd_check():

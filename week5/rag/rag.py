@@ -52,8 +52,7 @@ def _validate_quotes(quotes, chunks_by_id):
     return validated
 
 
-def answer_rag(question, index, settings=None, history_text="", history_messages=None):
-    result = retrieve(index, question, settings, history_text)
+def generate_answer(question, result, history_messages=None):
     if not result["final"]:
         return {"status": "no_context", "answer": REFUSAL, "sources": [], "quotes": [],
                 "retrieval": result}
@@ -84,3 +83,8 @@ def answer_rag(question, index, settings=None, history_text="", history_messages
         "quotes": quotes,
         "retrieval": result,
     }
+
+
+def answer_rag(question, index, settings=None, history_text="", history_messages=None):
+    result = retrieve(index, question, settings, history_text)
+    return generate_answer(question, result, history_messages)
