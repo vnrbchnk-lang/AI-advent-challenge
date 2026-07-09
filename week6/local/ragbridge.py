@@ -41,7 +41,7 @@ def _sources(final_hits):
 
 
 def answer_local(question, index, settings=None, model=localllm.CHAT_MODEL,
-                 temperature=0.3, num_ctx=None, num_predict=None):
+                 temperature=0.3, num_ctx=4096, num_predict=None):
     result = retrieve(index, question, settings)
     if not result["final"]:
         return {"status": "no_context", "answer": "В базе нет релевантного контекста.",

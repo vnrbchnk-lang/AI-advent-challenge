@@ -242,7 +242,7 @@ def cmd_localrag(question):
         return
     try:
         with console.status(Text("Локальный ретрив + локальная генерация", style=NAVY_PALE)):
-            result = ragbridge.answer_local(question, index)
+            result = ragbridge.answer_local(question, index, {"top_k": 3})
         _render_local_rag(result)
     except Exception as error:
         _error("Ошибка локального RAG", error)
@@ -254,7 +254,7 @@ def cmd_compare28(question):
         return
     try:
         with console.status(Text("Гоняю локальную и облачную модель на одном контексте", style=NAVY_PALE)):
-            local_result, cloud_result = ragbridge.compare(question, index)
+            local_result, cloud_result = ragbridge.compare(question, index, {"top_k": 3})
     except Exception as error:
         _error("Ошибка сравнения (облачная сторона требует PROXYAPI_KEY)", error)
         return
