@@ -1,4 +1,5 @@
 import json as _json
+import os
 import subprocess
 import sys
 
@@ -346,9 +347,11 @@ def _isolated_ask(model, prompt, num_predict=120, timeout=240):
         f"t,s=localllm.ask({prompt!r},model={model!r},temperature=0.1,num_predict={num_predict});"
         "print(json.dumps({'text':t,'stats':s},ensure_ascii=False))"
     )
+    child_env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     try:
         proc = subprocess.run([sys.executable, "-c", code], capture_output=True,
-                              text=True, encoding="utf-8", timeout=timeout)
+                              text=True, encoding="utf-8", errors="replace",
+                              env=child_env, timeout=timeout)
     except subprocess.TimeoutExpired:
         return None
     if proc.returncode != 0:
