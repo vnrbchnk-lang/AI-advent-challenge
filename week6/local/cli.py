@@ -333,47 +333,69 @@ def cmd_params(args):
                         border_style=NAVY, box=box.ROUNDED))
 
 
-def _optimize(question):
-    if _load_index() is None:
-        console.print(Text("Индекс недели 5 не найден — построй его: agent21 -> /fetch /index.", style=WARN))
-        return
-    tuned_settings = {"top_k": 3}
-    tuned = _tuned_call_kwargs()
-    tuned_q8 = {**tuned, "model": localllm.Q8_MODEL}
-    runs = [
-        ("До: дефолт (temp 0.3, промпт общий, Q4)",
-         dict(model=localllm.CHAT_MODEL, temperature=0.3, num_ctx=None, num_predict=None)),
-        (f"После: tuned (temp {tuned['temperature']}, num_ctx {tuned['num_ctx']},"
-         f" num_predict {tuned['num_predict']}, {tuned_params['model'].upper()})", tuned),
-        ("Квант Q8 (те же tuned-параметры)", tuned_q8),
-    ]
+QUANT_PROMPT = "Объясни простыми словами, что такое RAG в LLM. Ровно 2 предложения, по-русски."
+
+
+def _speed_table(title, rows, subtitle=""):
     table = Table(box=box.SIMPLE_HEAD, border_style=NAVY_DIM)
     table.add_column("конфигурация", style=f"bold {NAVY_BRIGHT}")
     table.add_column("секунды", justify="right", style=NAVY_PALE)
     table.add_column("tok/s", justify="right", style=NAVY_PALE)
     table.add_column("токенов", justify="right", style=NAVY_PALE)
-    loaded_model = None
-    for label, params in runs:
+    for label, stats in rows:
+        stats = stats or {}
+        table.add_row(label, str(stats.get("seconds", "—")),
+                      str(stats.get("tok_per_s", "—")), str(stats.get("tokens", "—")))
+    console.print(Panel(table, title=Text(title, style=f"bold {NAVY_BRIGHT}"),
+                        subtitle=Text(subtitle, style=NAVY_DIM), border_style=NAVY, box=box.ROUNDED))
+
+
+def _optimize(question):
+    if _load_index() is None:
+        console.print(Text("Индекс недели 5 не найден — построй его: agent21 -> /fetch /index.", style=WARN))
+        return
+    tuned_settings = {"top_k": 3}
+    tuned = {**_tuned_call_kwargs(), "model": localllm.CHAT_MODEL}
+    localllm.unload(localllm.Q8_MODEL)
+    param_runs = [
+        ("До: дефолт (temp 0.3, промпт общий, num_ctx по умолчанию)",
+         dict(model=localllm.CHAT_MODEL, temperature=0.3, num_ctx=None, num_predict=None)),
+        (f"После: tuned (temp {tuned['temperature']}, num_ctx {tuned['num_ctx']},"
+         f" num_predict {tuned['num_predict']}, prompt под кейс)", tuned),
+    ]
+    param_rows = []
+    for label, params in param_runs:
         try:
-            if loaded_model and loaded_model != params["model"]:
-                localllm.unload(loaded_model)
-            loaded_model = params["model"]
             console.print(Text(label, style=f"bold {NAVY_BRIGHT}"))
-            with console.status(Text("Запрос к локальной модели", style=NAVY_PALE)):
+            with console.status(Text("RAG-запрос к локальной модели (Q4)", style=NAVY_PALE)):
                 result = ragbridge.answer_local(question, index, tuned_settings, **params)
             _answer_panel(result["answer"], result.get("stats"), label)
-            stats = result.get("stats") or {}
-            table.add_row(label, str(stats.get("seconds", "?")),
-                          str(stats.get("tok_per_s", "?")), str(stats.get("tokens", "?")))
+            param_rows.append((label, result.get("stats")))
         except Exception as error:
-            _error("Ошибка прогона (для Q8 нужна модель qwen2.5:7b-instruct-q8_0)", error)
-            table.add_row(label, "—", "—", "—")
-    console.print(Panel(table, title=Text("Скорость по конфигурациям", style=f"bold {NAVY_BRIGHT}"),
-                        subtitle=Text(f"футпринт: {_footprint_line()}", style=NAVY_DIM),
-                        border_style=NAVY, box=box.ROUNDED))
+            _error("Ошибка прогона параметров", error)
+            param_rows.append((label, None))
+    _speed_table("Параметры и промпт: до/после (RAG, Q4)", param_rows,
+                 "тот же вопрос по базе, меняются только параметры и prompt-шаблон")
+
+    console.print(Text("Квантование: Q4_K_M vs Q8_0 на коротком запросе (без тяжёлого контекста, "
+                       "чтобы Q8 уместился в память ноутбука)", style=f"bold {NAVY_BRIGHT}"))
+    quant_rows = []
+    for model in (localllm.CHAT_MODEL, localllm.Q8_MODEL):
+        try:
+            localllm.unload(localllm.Q8_MODEL if model == localllm.CHAT_MODEL else localllm.CHAT_MODEL)
+            with console.status(Text(f"Запрос к {model}", style=NAVY_PALE)):
+                text, stats = localllm.ask(QUANT_PROMPT, model=model, temperature=0.1, num_predict=120)
+            _answer_panel(text, stats, model)
+            quant_rows.append((model, stats))
+        except Exception as error:
+            _error(f"Ошибка прогона {model}", error)
+            quant_rows.append((model, None))
+    _speed_table("Квантование: Q4 vs Q8", quant_rows,
+                 f"футпринт загруженной модели: {_footprint_line()}")
+
     console.print(Panel(Text(
-        "Оцени на видео: качество ответов до/после и Q4/Q8 (точность, формат),"
-        " скорость (tok/s) и потребление (футпринт). Q4 легче и быстрее, Q8 точнее.",
+        "Оцени на видео: качество ответов до/после (точность, формат, полнота) и Q4 vs Q8;"
+        " скорость (tok/s) и потребление (футпринт /api/ps). Q4 легче и быстрее, Q8 точнее и тяжелее.",
         style=NAVY_PALE), title=Text("Выводы", style=f"bold {NAVY_BRIGHT}"),
         border_style=NAVY, box=box.ROUNDED))
 
@@ -381,8 +403,8 @@ def _optimize(question):
 def demo29():
     _day_header(29, "Оптимизация локальной LLM", [
         "кейс: QA по базе хакатона; крутим temperature / num_ctx / num_predict + prompt-шаблон",
-        "параметры «после» меняются вручную командой /params (temperature, num_ctx, num_predict, model)",
-        "квантование: тот же вопрос на Q4_K_M vs Q8_0",
+        "параметры «после» меняются вручную командой /params (temperature, num_ctx, num_predict)",
+        "квантование: Q4_K_M vs Q8_0 на коротком запросе (Q8 тяжёлый для 15GB RAM с большим контекстом)",
         "сравнение: качество до/после, скорость (tok/s), потребление (футпринт /api/ps)",
     ])
     _optimize("Опиши кратко механику травмы и смерти карты в игре.")
