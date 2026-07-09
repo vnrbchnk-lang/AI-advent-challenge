@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "advent-week6-local"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["requests", "rich", "prompt_toolkit", "numpy"]
+
+[project.scripts]
+agent26 = "local.cli:main"
+
+[tool.setuptools]
+packages = ["local"]

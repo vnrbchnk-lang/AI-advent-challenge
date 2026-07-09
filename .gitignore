@@ -11,6 +11,7 @@ secrets.*
 02_agent_tools_summary.md
 03-memory-state-summary.md
 04-mcp-summary.md
+06_локальная_llm_summary.md
 
 # --- Данные диалогов агентов (живая история, не код) ---
 week2/*/history.json
