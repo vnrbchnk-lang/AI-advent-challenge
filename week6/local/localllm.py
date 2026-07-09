@@ -94,5 +94,28 @@ def unload(model):
         pass
 
 
+def wait_unloaded(model, timeout=40):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            names = [m["name"] for m in running_models()]
+        except requests.RequestException:
+            return
+        if model not in names:
+            return
+        time.sleep(1)
+
+
+def switch_to(model):
+    try:
+        others = [m["name"] for m in running_models() if m["name"] != model]
+    except requests.RequestException:
+        others = [m for m in (CHAT_MODEL, Q8_MODEL) if m != model]
+    for other in others:
+        unload(other)
+    for other in others:
+        wait_unloaded(other)
+
+
 def ask(prompt, model=CHAT_MODEL, temperature=0.3, num_ctx=None, num_predict=None):
     return chat([{"role": "user", "content": prompt}], model, temperature, num_ctx, num_predict)

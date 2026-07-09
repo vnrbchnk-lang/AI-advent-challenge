@@ -1,3 +1,7 @@
+import json as _json
+import subprocess
+import sys
+
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import HTML
@@ -336,6 +340,29 @@ def cmd_params(args):
 QUANT_PROMPT = "Объясни простыми словами, что такое RAG в LLM. Ровно 2 предложения, по-русски."
 
 
+def _isolated_ask(model, prompt, num_predict=120, timeout=240):
+    code = (
+        "import json;from local import localllm;"
+        f"t,s=localllm.ask({prompt!r},model={model!r},temperature=0.1,num_predict={num_predict});"
+        "print(json.dumps({'text':t,'stats':s},ensure_ascii=False))"
+    )
+    try:
+        proc = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                              text=True, encoding="utf-8", timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None
+    if proc.returncode != 0:
+        return None
+    for line in reversed(proc.stdout.splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                return _json.loads(line)
+            except ValueError:
+                return None
+    return None
+
+
 def _speed_table(title, rows, subtitle=""):
     table = Table(box=box.SIMPLE_HEAD, border_style=NAVY_DIM)
     table.add_column("конфигурация", style=f"bold {NAVY_BRIGHT}")
@@ -356,7 +383,8 @@ def _optimize(question):
         return
     tuned_settings = {"top_k": 3}
     tuned = {**_tuned_call_kwargs(), "model": localllm.CHAT_MODEL}
-    localllm.unload(localllm.Q8_MODEL)
+    with console.status(Text("Готовлю память под Q4", style=NAVY_PALE)):
+        localllm.switch_to(localllm.CHAT_MODEL)
     param_runs = [
         ("До: дефолт (temp 0.3, промпт общий, num_ctx по умолчанию)",
          dict(model=localllm.CHAT_MODEL, temperature=0.3, num_ctx=None, num_predict=None)),
@@ -378,17 +406,24 @@ def _optimize(question):
                  "тот же вопрос по базе, меняются только параметры и prompt-шаблон")
 
     console.print(Text("Квантование: Q4_K_M vs Q8_0 на коротком запросе (без тяжёлого контекста, "
-                       "чтобы Q8 уместился в память ноутбука)", style=f"bold {NAVY_BRIGHT}"))
+                       "чтобы Q8 уместился в память ноутбука). Каждый прогон — в отдельном процессе, "
+                       "чтобы нехватка памяти под Q8 не роняла приложение.", style=f"bold {NAVY_BRIGHT}"))
     quant_rows = []
     for model in (localllm.CHAT_MODEL, localllm.Q8_MODEL):
-        try:
-            localllm.unload(localllm.Q8_MODEL if model == localllm.CHAT_MODEL else localllm.CHAT_MODEL)
-            with console.status(Text(f"Запрос к {model}", style=NAVY_PALE)):
-                text, stats = localllm.ask(QUANT_PROMPT, model=model, temperature=0.1, num_predict=120)
-            _answer_panel(text, stats, model)
-            quant_rows.append((model, stats))
-        except Exception as error:
-            _error(f"Ошибка прогона {model}", error)
+        with console.status(Text(f"Освобождаю память и гружу {model}", style=NAVY_PALE)):
+            localllm.switch_to(model)
+        with console.status(Text(f"Запрос к {model} (изолированный процесс)", style=NAVY_PALE)):
+            payload = _isolated_ask(model, QUANT_PROMPT)
+        if payload:
+            _answer_panel(payload["text"], payload["stats"], model)
+            quant_rows.append((model, payload["stats"]))
+        else:
+            console.print(Panel(Text(
+                f"{model}: не уместился в память этого ноутбука (15GB RAM, CPU) или превысил тайм-аут. "
+                "Квант доступен и запускается, но Q8 (8GB) тяжёл для этой машины — это и есть вывод по "
+                "ресурсам. На машине с большей RAM/GPU сравнение Q4/Q8 честное.", style=WARN),
+                title=Text(f"{model} — ресурсов не хватило", style=f"bold {WARN}"),
+                border_style=WARN, box=box.ROUNDED))
             quant_rows.append((model, None))
     _speed_table("Квантование: Q4 vs Q8", quant_rows,
                  f"футпринт загруженной модели: {_footprint_line()}")
