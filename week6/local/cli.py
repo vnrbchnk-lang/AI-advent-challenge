@@ -337,7 +337,7 @@ def _optimize(question):
     if _load_index() is None:
         console.print(Text("Индекс недели 5 не найден — построй его: agent21 -> /fetch /index.", style=WARN))
         return
-    tuned_settings = {"top_k": 4}
+    tuned_settings = {"top_k": 3}
     tuned = _tuned_call_kwargs()
     tuned_q8 = {**tuned, "model": localllm.Q8_MODEL}
     runs = [
@@ -352,8 +352,12 @@ def _optimize(question):
     table.add_column("секунды", justify="right", style=NAVY_PALE)
     table.add_column("tok/s", justify="right", style=NAVY_PALE)
     table.add_column("токенов", justify="right", style=NAVY_PALE)
+    loaded_model = None
     for label, params in runs:
         try:
+            if loaded_model and loaded_model != params["model"]:
+                localllm.unload(loaded_model)
+            loaded_model = params["model"]
             console.print(Text(label, style=f"bold {NAVY_BRIGHT}"))
             with console.status(Text("Запрос к локальной модели", style=NAVY_PALE)):
                 result = ragbridge.answer_local(question, index, tuned_settings, **params)

@@ -86,5 +86,13 @@ def chat(messages, model=CHAT_MODEL, temperature=0.3, num_ctx=None, num_predict=
     return text, _stats(payload, time.time() - started)
 
 
+def unload(model):
+    try:
+        requests.post(f"{OLLAMA_URL}/api/generate",
+                      json={"model": model, "keep_alive": 0}, timeout=30)
+    except requests.RequestException:
+        pass
+
+
 def ask(prompt, model=CHAT_MODEL, temperature=0.3, num_ctx=None, num_predict=None):
     return chat([{"role": "user", "content": prompt}], model, temperature, num_ctx, num_predict)
