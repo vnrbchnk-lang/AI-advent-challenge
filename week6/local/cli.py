@@ -29,6 +29,7 @@ COMMANDS = {
     "/demo28": "день 28: локальный RAG vs облачный на вопросе из базы",
     "/demo29": "день 29: оптимизация — до/после параметров и промпта + квант Q4 vs Q8",
     "/optimize": "день 29: то же на своём вопросе. Пример: /optimize как работает травма карты",
+    "/params": "день 29: показать/менять tuned-параметры. /params | /params temperature 0.1 | /params model q8",
     "/help": "справка по командам",
     "/exit": "выйти",
 }
@@ -47,6 +48,18 @@ MENU_STYLE = Style.from_dict({
 
 console = Console()
 index = None
+
+tuned_params = {"temperature": 0.1, "num_ctx": 4096, "num_predict": 220, "model": "q4"}
+MODEL_ALIASES = {"q4": localllm.CHAT_MODEL, "q8": localllm.Q8_MODEL}
+
+
+def _tuned_call_kwargs():
+    return dict(
+        model=MODEL_ALIASES[tuned_params["model"]],
+        temperature=tuned_params["temperature"],
+        num_ctx=tuned_params["num_ctx"],
+        num_predict=tuned_params["num_predict"],
+    )
 
 
 class CommandCompleter(Completer):
@@ -281,18 +294,58 @@ def _footprint_line():
                       for m in loaded)
 
 
+def cmd_params(args):
+    parts = args.split()
+    if len(parts) == 2:
+        key, value = parts
+        try:
+            if key == "temperature":
+                tuned_params[key] = float(value)
+            elif key in ("num_ctx", "num_predict"):
+                tuned_params[key] = int(value)
+            elif key == "model" and value in MODEL_ALIASES:
+                tuned_params[key] = value
+            else:
+                console.print(Text("Ключи: temperature <float>, num_ctx <int>, num_predict <int>,"
+                                   " model <q4|q8>", style=WARN))
+                return
+        except ValueError:
+            console.print(Text(f"Неверное значение для {key}: {value}", style=WARN))
+            return
+    elif parts:
+        console.print(Text("Формат: /params  или  /params <ключ> <значение>", style=WARN))
+        return
+    table = Table(box=box.SIMPLE_HEAD, border_style=NAVY_DIM, show_edge=False)
+    table.add_column("параметр", style=f"bold {NAVY_BRIGHT}")
+    table.add_column("значение", style=NAVY_PALE)
+    table.add_column("смысл", style=NAVY_DIM)
+    rows = [
+        ("temperature", str(tuned_params["temperature"]), "разброс/креативность (0 — детерминированно)"),
+        ("num_ctx", str(tuned_params["num_ctx"]), "окно контекста в токенах"),
+        ("num_predict", str(tuned_params["num_predict"]), "максимум токенов в ответе"),
+        ("model", f"{tuned_params['model']} ({MODEL_ALIASES[tuned_params['model']]})", "квантование: q4 | q8"),
+    ]
+    for row in rows:
+        table.add_row(*row)
+    console.print(Panel(table, title=Text("Tuned-параметры дня 29 (строка «после»)", style=f"bold {NAVY_BRIGHT}"),
+                        subtitle=Text("меняй командой /params <ключ> <значение>, затем /optimize или /demo29",
+                                      style=NAVY_PALE),
+                        border_style=NAVY, box=box.ROUNDED))
+
+
 def _optimize(question):
     if _load_index() is None:
         console.print(Text("Индекс недели 5 не найден — построй его: agent21 -> /fetch /index.", style=WARN))
         return
     tuned_settings = {"top_k": 4}
+    tuned = _tuned_call_kwargs()
+    tuned_q8 = {**tuned, "model": localllm.Q8_MODEL}
     runs = [
         ("До: дефолт (temp 0.3, промпт общий, Q4)",
          dict(model=localllm.CHAT_MODEL, temperature=0.3, num_ctx=None, num_predict=None)),
-        ("После: tuned (temp 0.1, num_ctx 4096, num_predict 220, Q4)",
-         dict(model=localllm.CHAT_MODEL, temperature=0.1, num_ctx=4096, num_predict=220)),
-        ("Квант Q8 (те же tuned-параметры)",
-         dict(model=localllm.Q8_MODEL, temperature=0.1, num_ctx=4096, num_predict=220)),
+        (f"После: tuned (temp {tuned['temperature']}, num_ctx {tuned['num_ctx']},"
+         f" num_predict {tuned['num_predict']}, {tuned_params['model'].upper()})", tuned),
+        ("Квант Q8 (те же tuned-параметры)", tuned_q8),
     ]
     table = Table(box=box.SIMPLE_HEAD, border_style=NAVY_DIM)
     table.add_column("конфигурация", style=f"bold {NAVY_BRIGHT}")
@@ -324,6 +377,7 @@ def _optimize(question):
 def demo29():
     _day_header(29, "Оптимизация локальной LLM", [
         "кейс: QA по базе хакатона; крутим temperature / num_ctx / num_predict + prompt-шаблон",
+        "параметры «после» меняются вручную командой /params (temperature, num_ctx, num_predict, model)",
         "квантование: тот же вопрос на Q4_K_M vs Q8_0",
         "сравнение: качество до/после, скорость (tok/s), потребление (футпринт /api/ps)",
     ])
@@ -360,6 +414,8 @@ def dispatch(text):
         _optimize(args) if args else console.print(Text("нужен вопрос: /optimize <вопрос>", style=WARN))
     elif name == "/demo29":
         demo29()
+    elif name == "/params":
+        cmd_params(args)
     elif name == "/help":
         show_help()
     else:
