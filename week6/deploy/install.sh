@@ -4,16 +4,18 @@ set -euo pipefail
 MODEL="qwen2.5:1.5b-instruct"
 REPO_DIR="${REPO_DIR:-/opt/advent}"
 APP_USER="${APP_USER:-$(whoami)}"
+SUDO=""
+if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
 
 echo "[1/6] Пакеты системы"
-sudo apt-get update -y
-sudo apt-get install -y python3-venv python3-pip nginx git curl
+$SUDO apt-get update -y
+$SUDO apt-get install -y python3-venv python3-pip nginx git curl
 
 echo "[2/6] Установка Ollama"
 if ! command -v ollama >/dev/null 2>&1; then
   curl -fsSL https://ollama.com/install.sh | sh
 fi
-sudo systemctl enable --now ollama
+$SUDO systemctl enable --now ollama
 
 echo "[3/6] Загрузка модели ${MODEL}"
 ollama pull "${MODEL}"
@@ -25,7 +27,7 @@ python3 -m venv .venv
 ./.venv/bin/pip install -e week6
 
 echo "[5/6] systemd-сервис питомца"
-sudo tee /etc/systemd/system/pet.service >/dev/null <<UNIT
+$SUDO tee /etc/systemd/system/pet.service >/dev/null <<UNIT
 [Unit]
 Description=Advent day30 local LLM pet service
 After=network.target ollama.service
@@ -41,14 +43,14 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 UNIT
-sudo systemctl daemon-reload
-sudo systemctl enable --now pet.service
+$SUDO systemctl daemon-reload
+$SUDO systemctl enable --now pet.service
 
 echo "[6/6] nginx на 80 порт"
-sudo cp "${REPO_DIR}/week6/deploy/nginx.conf" /etc/nginx/sites-available/pet
-sudo ln -sf /etc/nginx/sites-available/pet /etc/nginx/sites-enabled/pet
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t
-sudo systemctl restart nginx
+$SUDO cp "${REPO_DIR}/week6/deploy/nginx.conf" /etc/nginx/sites-available/pet
+$SUDO ln -sf /etc/nginx/sites-available/pet /etc/nginx/sites-enabled/pet
+$SUDO rm -f /etc/nginx/sites-enabled/default
+$SUDO nginx -t
+$SUDO systemctl restart nginx
 
 echo "Готово. Открой http://<IP-сервера>/"
