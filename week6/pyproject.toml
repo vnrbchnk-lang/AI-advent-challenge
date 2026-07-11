@@ -6,10 +6,11 @@ build-backend = "setuptools.build_meta"
 name = "advent-week6-local"
 version = "0.1.0"
 requires-python = ">=3.10"
-dependencies = ["requests", "rich", "prompt_toolkit", "numpy"]
+dependencies = ["requests", "rich", "prompt_toolkit", "numpy", "fastapi", "uvicorn"]
 
 [project.scripts]
 agent26 = "local.cli:main"
+agent30 = "local.pet.app:run"
 
 [tool.setuptools]
-packages = ["local"]
+packages = ["local", "local.pet"]
