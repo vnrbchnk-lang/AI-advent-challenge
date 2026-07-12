@@ -385,14 +385,16 @@ def _optimize(question):
         console.print(Text("Индекс недели 5 не найден — построй его: agent21 -> /fetch /index.", style=WARN))
         return
     tuned_settings = {"top_k": 3}
-    tuned = {**_tuned_call_kwargs(), "model": localllm.CHAT_MODEL}
+    tuned = {**_tuned_call_kwargs(), "model": localllm.CHAT_MODEL,
+             "system": ragbridge.LOCAL_RAG_SYSTEM}
     with console.status(Text("Готовлю память под Q4", style=NAVY_PALE)):
         localllm.switch_to(localllm.CHAT_MODEL)
     param_runs = [
-        ("До: дефолт (temp 0.3, промпт общий, num_ctx по умолчанию)",
-         dict(model=localllm.CHAT_MODEL, temperature=0.3, num_ctx=None, num_predict=None)),
+        ("До: наивно (temp 0.9, промпт общий «отвечай подробнее», num_ctx 2048, без лимита длины)",
+         dict(model=localllm.CHAT_MODEL, temperature=0.9, num_ctx=2048, num_predict=None,
+              system=ragbridge.NAIVE_SYSTEM)),
         (f"После: tuned (temp {tuned['temperature']}, num_ctx {tuned['num_ctx']},"
-         f" num_predict {tuned['num_predict']}, prompt под кейс)", tuned),
+         f" num_predict {tuned['num_predict']}, строгий prompt по базе + формат)", tuned),
     ]
     param_rows = []
     for label, params in param_runs:

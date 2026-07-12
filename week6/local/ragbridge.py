@@ -22,8 +22,11 @@ from rag.rag import _context_block, answer_rag
 LOCAL_RAG_SYSTEM = (
     "Ты ассистент по базе знаний проекта «Личная культура» (хакатон). Отвечай ТОЛЬКО на основе "
     "приложенных фрагментов базы, по-русски, 2-6 предложений. Ничего не выдумывай сверх фрагментов. "
-    "Если во фрагментах нет ответа — так и скажи."
+    "Если во фрагментах нет ответа — так и скажи. Формат: сначала краткий вывод одним предложением, "
+    "затем при необходимости 2-4 уточняющих пункта списком, каждый с новой строки через «- »."
 )
+
+NAIVE_SYSTEM = "Ты — дружелюбный помощник. Отвечай развёрнуто и как можно подробнее."
 
 
 def load_index(strategy="structural"):
@@ -41,14 +44,14 @@ def _sources(final_hits):
 
 
 def answer_local(question, index, settings=None, model=localllm.CHAT_MODEL,
-                 temperature=0.3, num_ctx=4096, num_predict=None):
+                 temperature=0.3, num_ctx=4096, num_predict=None, system=LOCAL_RAG_SYSTEM):
     result = retrieve(index, question, settings)
     if not result["final"]:
         return {"status": "no_context", "answer": "В базе нет релевантного контекста.",
                 "sources": [], "stats": None, "retrieval": result}
     context = _context_block(result["final"])
     messages = [
-        {"role": "system", "content": LOCAL_RAG_SYSTEM},
+        {"role": "system", "content": system},
         {"role": "user", "content": f"Фрагменты базы:\n{context}\n\nВопрос: {question}"},
     ]
     text, stats = localllm.chat(messages, model=model, temperature=temperature,
