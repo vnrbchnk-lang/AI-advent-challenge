@@ -75,7 +75,6 @@ def age_hours(pet):
 def snapshot():
     with _lock:
         pet = _tick(_load(), time.time())
-        _save(pet)
         return {
             "name": pet["name"],
             "fullness": round(pet["fullness"]),

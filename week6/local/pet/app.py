@@ -16,12 +16,16 @@ app = FastAPI(title="Pet")
 rate = limits.RateLimiter(per_ip_rate=0.4, per_ip_burst=3, global_rate=1.0, global_burst=6)
 inference = asyncio.Semaphore(1)
 histories = {}
+MAX_SESSIONS = 2000
 
 
 def client_ip(request):
+    cf = request.headers.get("cf-connecting-ip")
+    if cf:
+        return cf.strip()
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        return forwarded.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
 
 
@@ -76,6 +80,8 @@ async def chat(request: Request):
     history.append({"role": "user", "content": text})
     history.append({"role": "assistant", "content": reply})
     histories[sid] = limits.trim_history(history)
+    while len(histories) > MAX_SESSIONS:
+        histories.pop(next(iter(histories)))
 
     result = JSONResponse({"reply": reply, "pet": pet, "clipped": clipped, "stats": stats})
     result.set_cookie("pet_sid", sid, max_age=86400, samesite="lax")
