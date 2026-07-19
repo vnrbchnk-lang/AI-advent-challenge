@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "advent-week7-devassist"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["mcp", "requests", "rich", "prompt_toolkit", "numpy"]
+
+[project.scripts]
+agent31 = "devassist.cli:main"
+
+[tool.setuptools]
+packages = ["devassist", "devassist.servers"]

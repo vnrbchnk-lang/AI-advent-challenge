@@ -1,0 +1,41 @@
+name: AI-ревью pull request
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Забрать репозиторий с историей
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Поставить Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Установить ассистента
+        run: pip install -e week7
+
+      - name: Ревью diff (MCP + RAG + три субагента)
+        env:
+          PROXYAPI_KEY: ${{ secrets.PROXYAPI_KEY }}
+        run: |
+          python -m devassist.review \
+            --project advent \
+            --base origin/${{ github.event.pull_request.base.ref }} \
+            --head ${{ github.event.pull_request.head.sha }} \
+            --out review.md
+
+      - name: Отправить ревью комментарием в PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment ${{ github.event.number }} --body-file review.md
