@@ -10,6 +10,7 @@ dependencies = ["mcp", "requests", "rich", "prompt_toolkit", "numpy"]
 
 [project.scripts]
 agent31 = "devassist.cli:main"
+agent34 = "devassist.devagent:main"
 
 [tool.setuptools]
 packages = ["devassist", "devassist.servers"]

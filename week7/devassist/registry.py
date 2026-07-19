@@ -1,6 +1,8 @@
 DANGEROUS_TOOLS = {
     "project__write_file",
     "project__replace_in_file",
+    "project__git_commit",
+    "project__git_push",
     "tickets__add_note",
 }
 

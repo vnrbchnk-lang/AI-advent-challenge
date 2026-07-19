@@ -86,6 +86,23 @@ def replace_in_file(
     return tools_project.replace_in_file(project, path, old, new)
 
 
+@mcp.tool(description="ОПАСНАЯ ОПЕРАЦИЯ. Закоммитить изменения проекта. Если передать paths — в коммит попадут только эти файлы, иначе все изменения. Разрешено только для проектов sandbox и advent.")
+def git_commit(
+    project: Project = "advent",
+    message: Annotated[str, Field(description="Сообщение коммита")] = "",
+    paths: Annotated[list[str], Field(description="Пути файлов, которые надо закоммитить")] = [],
+) -> dict:
+    return tools_project.git_commit(project, message, paths)
+
+
+@mcp.tool(description="ОПАСНАЯ ОПЕРАЦИЯ. Запушить текущую ветку в удалённый репозиторий. Разрешено только для проектов sandbox и advent.")
+def git_push(
+    project: Project = "advent",
+    remote: Annotated[str, Field(description="Имя удалённого репозитория")] = "origin",
+) -> dict:
+    return tools_project.git_push(project, remote)
+
+
 def main():
     mcp.run(transport="stdio")
 

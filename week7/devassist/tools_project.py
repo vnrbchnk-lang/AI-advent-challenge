@@ -10,7 +10,7 @@ PROJECT_ROOTS = {
     "advent": config.ADVENT_ROOT,
     "sandbox": config.SANDBOX / "alaba",
 }
-WRITABLE_PROJECTS = {"sandbox"}
+WRITABLE_PROJECTS = {"sandbox", "advent"}
 MAX_DIFF_CHARS = 60_000
 MAX_READ_LINES = 400
 
@@ -187,6 +187,34 @@ def replace_in_file(project="sandbox", path="", old="", new=""):
         raise ToolError("исходный фрагмент не найден в файле")
     target.write_text(text.replace(old, new, 1), encoding="utf-8")
     return {"project": project, "path": path, "replaced": True}
+
+
+def git_commit(project="advent", message="", paths=None):
+    _guard_write(project)
+    if not message.strip():
+        raise ToolError("нужно сообщение коммита")
+    targets = [path for path in (paths or []) if path]
+    if targets:
+        for path in targets:
+            _safe_path(project, path)
+        _git(project, "add", "--", *targets)
+    else:
+        _git(project, "add", "-A")
+    staged = _git(project, "diff", "--cached", "--name-only").strip()
+    if not staged:
+        raise ToolError("нечего коммитить: изменений в индексе нет")
+    _git(project, "commit", "-m", message)
+    head = _git(project, "rev-parse", "--short", "HEAD").strip()
+    return {"project": project, "commit": head, "message": message,
+            "files": staged.splitlines()}
+
+
+def git_push(project="advent", remote="origin"):
+    _guard_write(project)
+    branch = _git(project, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    output = _git(project, "push", remote, branch)
+    return {"project": project, "remote": remote, "branch": branch,
+            "output": output.strip() or "запушено"}
 
 
 def sandbox_prepare(reset=False):
