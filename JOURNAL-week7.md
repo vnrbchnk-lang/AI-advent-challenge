@@ -66,7 +66,8 @@ error handling с retry/fallback, метрики latency/cost/quality, human-in-
   MCP отдаёт не только ветку, но и статус, лог, diff, чтение файлов и grep.
 
 ### День 32 — Автоматизация ревью кода
-- Статус: готово (Action ждёт секрет `PROXYAPI_KEY` и открытия PR — за пользователем)
+- Статус: готово и проверено живьём — Action отработал на PR #1 за 54 с и оставил комментарий
+  с ревью (https://github.com/vnrbchnk-lang/AI-advent-challenge/pull/1)
 - Файлы: `week7/devassist/review.py`, `subagents.py`, `.github/workflows/ai-review.yml`,
   демо-ветка `demo/day32-review` (`week7/demo/summarize_journal.py`)
 - Задание: пайплайн, где ассистент анализирует новый PR: получает diff и изменённые файлы,
@@ -145,5 +146,5 @@ error handling с retry/fallback, метрики latency/cost/quality, human-in-
 
 1. `pip install -e week7`, переменная `PROXYAPI_KEY` в окружении.
 2. `agent31` → `/index` (строит три индекса, ~45 с) → дальше `/demo31` … `/demo35`.
-3. Для дня 32 в GitHub: Settings → Secrets and variables → Actions → добавить `PROXYAPI_KEY`,
-   затем открыть PR из ветки `demo/day32-review` в `main` — Action прокомментирует PR.
+3. День 32 уже прогнан: секрет `PROXYAPI_KEY` добавлен в репозиторий, PR #1 открыт, Action
+   отработал и оставил ревью комментарием. Повторить можно любым новым коммитом в ветку.
