@@ -5,7 +5,7 @@ from pydantic import Field
 
 from devassist import tools_tickets
 
-mcp = FastMCP("devassist-tickets")
+mcp = FastMCP("devassist-tickets", log_level="WARNING")
 
 
 @mcp.tool(description="Список тикетов поддержки. Можно отфильтровать по статусу (open/closed) и тегу (auth, economy, battle, decks, ui).")

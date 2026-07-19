@@ -5,7 +5,7 @@ from pydantic import Field
 
 from devassist import tools_project
 
-mcp = FastMCP("devassist-project")
+mcp = FastMCP("devassist-project", log_level="WARNING")
 
 Project = Annotated[str, Field(description="Проект: alaba (живой репозиторий), advent, sandbox (клон для правок)")]
 
