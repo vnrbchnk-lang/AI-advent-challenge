@@ -193,7 +193,7 @@ def sandbox_prepare(reset=False):
     target = config.SANDBOX / "alaba"
     config.SANDBOX.mkdir(parents=True, exist_ok=True)
     if target.exists() and reset:
-        _git("sandbox", "checkout", "--", ".")
+        _git("sandbox", "reset", "--hard", "HEAD")
         _git("sandbox", "clean", "-fd")
         return {"path": str(target), "action": "reset"}
     if target.exists():
